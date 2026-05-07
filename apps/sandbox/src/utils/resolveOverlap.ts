@@ -77,7 +77,27 @@ export function resolveOverlap(
       // No overlap (strict): mEnd <= uStart or mStart >= uEnd
       if (mEnd <= uStart || mStart >= uEnd) continue;
 
-      // Geometry classification will go here in later tasks.
+      const fullyObscured = mStart <= uStart && mEnd >= uEnd;
+      const fullyInside = mStart > uStart && mEnd < uEnd;
+      const overlapsRight = mStart > uStart && mEnd >= uEnd; // moving covers underlying's right portion
+      const overlapsLeft = mStart <= uStart && mEnd < uEnd && mEnd > uStart; // moving covers underlying's left portion
+
+      if (fullyObscured) {
+        // delete — implemented in a later task
+      } else if (fullyInside) {
+        // split — implemented in a later task
+      } else if (overlapsRight) {
+        mutations.push({
+          type: 'trim',
+          clipId: underlying.id,
+          trackIndex: placement.trackIndex,
+          newStart: underlying.start,
+          newDuration: mStart - underlying.start,
+          newTrimStart: underlying.trimStart ?? 0,
+        });
+      } else if (overlapsLeft) {
+        // left-trim — implemented in a later task
+      }
     }
   }
 

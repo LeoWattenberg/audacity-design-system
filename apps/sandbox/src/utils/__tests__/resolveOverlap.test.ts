@@ -43,4 +43,65 @@ describe('resolveOverlap', () => {
     const result = resolveOverlap(tracks, intent, new Set([1, 2]));
     expect(result.mutations).toEqual([]);
   });
+
+  it('trims the underlying clip when moving clip overlaps its right portion', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 5, trimStart: 0 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 2, trackIndex: 0, start: 3, duration: 4 }, // moving clip 3..7, underlying 0..5
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([2]));
+    expect(result.mutations).toEqual([
+      {
+        type: 'trim',
+        clipId: 1,
+        trackIndex: 0,
+        newStart: 0,
+        newDuration: 3,
+        newTrimStart: 0,
+      },
+    ]);
+  });
+
+  it('right-side trim: mEnd exactly equals uEnd is still right-side trim (single trim)', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 5, trimStart: 0 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 2, trackIndex: 0, start: 2, duration: 3 }, // moving 2..5, underlying 0..5
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([2]));
+    // mStart > uStart and mEnd >= uEnd → right-side trim
+    expect(result.mutations).toEqual([
+      {
+        type: 'trim',
+        clipId: 1,
+        trackIndex: 0,
+        newStart: 0,
+        newDuration: 2,
+        newTrimStart: 0,
+      },
+    ]);
+  });
+
+  it('right-side trim preserves trimStart of the underlying clip', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 5, trimStart: 1.5 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 2, trackIndex: 0, start: 4, duration: 3 },
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([2]));
+    expect(result.mutations).toEqual([
+      {
+        type: 'trim',
+        clipId: 1,
+        trackIndex: 0,
+        newStart: 0,
+        newDuration: 4,
+        newTrimStart: 1.5,
+      },
+    ]);
+  });
 });
