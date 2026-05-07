@@ -228,4 +228,70 @@ describe('resolveOverlap', () => {
       { type: 'delete', clipId: 1, trackIndex: 0 },
     ]);
   });
+
+  it('handles multi-clip intent: each moving clip eats independently against non-moving clips', () => {
+    const tracks: ResolverTrack[] = [
+      track([
+        { id: 1, start: 0, duration: 4 },   // underlying A
+        { id: 2, start: 6, duration: 4 },   // underlying B
+        { id: 10, start: 0, duration: 4 },  // moving X (initially at 0..4, will move)
+        { id: 11, start: 6, duration: 4 },  // moving Y (initially at 6..10, will move)
+      ]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 10, trackIndex: 0, start: 2, duration: 4 }, // X lands on right of A
+      { clipId: 11, trackIndex: 0, start: 8, duration: 4 }, // Y lands on right of B
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([10, 11]));
+    expect(result.mutations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'trim', clipId: 1, newDuration: 2 }),
+      expect.objectContaining({ type: 'trim', clipId: 2, newDuration: 2 }),
+    ]));
+    expect(result.mutations).toHaveLength(2);
+  });
+
+  it('cross-track: mutations only target the destination track', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 5 }]),  // track 0
+      track([{ id: 2, start: 0, duration: 5 }]),  // track 1
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 99, trackIndex: 1, start: 2, duration: 4 }, // moving lands on track 1 only
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([99]));
+    expect(result.mutations).toEqual([
+      expect.objectContaining({ type: 'trim', clipId: 2, trackIndex: 1, newDuration: 2 }),
+    ]);
+  });
+
+  it('handles multiple underlying clips overlapping a single placement', () => {
+    const tracks: ResolverTrack[] = [
+      track([
+        { id: 1, start: 0, duration: 3 },  // underlying A: 0..3
+        { id: 2, start: 4, duration: 3 },  // underlying B: 4..7
+        { id: 3, start: 8, duration: 3 },  // underlying C: 8..11
+      ]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 99, trackIndex: 0, start: 2, duration: 7 }, // moving 2..9 — eats A's right, all of B, C's left
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([99]));
+    expect(result.mutations).toHaveLength(3);
+    expect(result.mutations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'trim', clipId: 1, newDuration: 2 }),
+      expect.objectContaining({ type: 'delete', clipId: 2 }),
+      expect.objectContaining({ type: 'trim', clipId: 3, newStart: 9, newDuration: 2 }),
+    ]));
+  });
+
+  it('ignores tracks that do not exist (out-of-bounds trackIndex)', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 5 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 2, trackIndex: 99, start: 0, duration: 5 },
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([2]));
+    expect(result.mutations).toEqual([]);
+  });
 });
