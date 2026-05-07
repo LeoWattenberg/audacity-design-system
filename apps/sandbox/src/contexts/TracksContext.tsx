@@ -35,6 +35,7 @@ export interface Clip {
   fullDuration?: number;
   deletedRegions?: DeletedRegion[]; // Sorted, non-overlapping deleted regions
   color?: 'cyan' | 'blue' | 'violet' | 'magenta' | 'red' | 'orange' | 'yellow' | 'green' | 'teal';
+  groupId?: string;
 }
 
 export interface Effect {
@@ -251,6 +252,8 @@ export type TracksAction =
   | { type: 'UPDATE_TRACK_SPECTROGRAM_FREQ'; payload: { index: number; minFreq?: number; maxFreq?: number } }
   // Piano roll / MIDI actions
   | { type: 'SET_PIANO_ROLL_OPEN'; payload: { open: boolean; trackIndex?: number; clipIndex?: number } }
+  | { type: 'GROUP_SELECTED_CLIPS' }
+  | { type: 'UNGROUP_CLIPS'; payload: { groupId: string } }
   | { type: 'SET_CANVAS_SNAP'; payload: import('@audacity-ui/core').SnapGrid }
   | { type: 'SET_PIANO_ROLL_SNAP'; payload: import('@audacity-ui/core').SnapGrid }
   | { type: 'SET_PIANO_ROLL_TIME_BASIS'; payload: 'beats' | 'seconds' }
@@ -298,6 +301,28 @@ const initialState: TracksState = {
   pianoRollScrollX: 0,
   canvasSnap: { subdivision: 1 },
 };
+
+/**
+ * Pure helper: expand the `selected` flag to include every clip whose `groupId`
+ * matches a currently-selected clip. Idempotent.
+ */
+export function expandSelectionToGroups(tracks: Track[]): Track[] {
+  const selectedGroupIds = new Set<string>();
+  for (const t of tracks) {
+    for (const c of t.clips) {
+      if (c.selected && c.groupId) selectedGroupIds.add(c.groupId);
+    }
+  }
+  if (selectedGroupIds.size === 0) return tracks;
+  return tracks.map(t => ({
+    ...t,
+    clips: t.clips.map(c =>
+      c.groupId && selectedGroupIds.has(c.groupId) && !c.selected
+        ? { ...c, selected: true }
+        : c
+    ),
+  }));
+}
 
 // Reducer
 export function tracksReducer(state: TracksState, action: TracksAction): TracksState {
@@ -527,12 +552,22 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         endTime: selectedClip.start + selectedClip.duration,
       } : null;
 
+      const expandedTracks = expandSelectionToGroups(newTracks);
+
+      // Derive selectedTrackIndices from the expanded selection (groups may span tracks).
+      const expandedSelectedTrackIndices: number[] = [];
+      expandedTracks.forEach((t, idx) => {
+        if (t.clips.some(c => c.selected) || t.midiClips?.some(c => c.selected)) {
+          expandedSelectedTrackIndices.push(idx);
+        }
+      });
+
       return {
         ...state,
-        tracks: newTracks,
-        selectedTrackIndices: [trackIndex],
+        tracks: expandedTracks,
+        selectedTrackIndices: expandedSelectedTrackIndices.length > 0 ? expandedSelectedTrackIndices : [trackIndex],
         focusedTrackIndex: trackIndex,
-        selectedLabelIds: [], // Clear label selection when selecting clip
+        selectedLabelIds: [],
         timeSelection: newTimeSelection,
         clipDurationIndicator: newClipDurationIndicator,
         lastSelectedClip: { trackIndex, clipId },
@@ -552,10 +587,16 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
           }))
         }));
 
+        const expandedTracks = expandSelectionToGroups(newTracks);
+        const sti: number[] = [];
+        expandedTracks.forEach((t, idx) => {
+          if (t.clips.some(c => c.selected) || t.midiClips?.some(c => c.selected)) sti.push(idx);
+        });
+
         return {
           ...state,
-          tracks: newTracks,
-          selectedTrackIndices: [trackIndex],
+          tracks: expandedTracks,
+          selectedTrackIndices: sti.length > 0 ? sti : [trackIndex],
           focusedTrackIndex: trackIndex,
           selectedLabelIds: [],
           lastSelectedClip: { trackIndex, clipId },
@@ -580,10 +621,16 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
           }))
         }));
 
+        const expandedTracks = expandSelectionToGroups(newTracks);
+        const sti: number[] = [];
+        expandedTracks.forEach((t, idx) => {
+          if (t.clips.some(c => c.selected) || t.midiClips?.some(c => c.selected)) sti.push(idx);
+        });
+
         return {
           ...state,
-          tracks: newTracks,
-          selectedTrackIndices: [trackIndex],
+          tracks: expandedTracks,
+          selectedTrackIndices: sti.length > 0 ? sti : [trackIndex],
           focusedTrackIndex: trackIndex,
           selectedLabelIds: [],
           lastSelectedClip: { trackIndex, clipId },
@@ -603,10 +650,16 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         }))
       }));
 
+      const expandedTracks = expandSelectionToGroups(newTracks);
+      const sti: number[] = [];
+      expandedTracks.forEach((t, idx) => {
+        if (t.clips.some(c => c.selected) || t.midiClips?.some(c => c.selected)) sti.push(idx);
+      });
+
       return {
         ...state,
-        tracks: newTracks,
-        selectedTrackIndices: [trackIndex],
+        tracks: expandedTracks,
+        selectedTrackIndices: sti.length > 0 ? sti : [trackIndex],
         focusedTrackIndex: trackIndex,
         selectedLabelIds: [],
         // Keep lastSelectedClip as the anchor for future range selections
@@ -879,14 +932,16 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         }),
       }));
 
+      const expandedTracks = expandSelectionToGroups(newTracks);
+
       // Update selectedTrackIndices based on which tracks have selected clips
-      const tracksWithSelection = newTracks
+      const tracksWithSelection = expandedTracks
         .map((track, idx) => ({ idx, hasSelection: track.clips.some(c => c.selected) || track.midiClips?.some(c => c.selected) }))
         .filter(t => t.hasSelection)
         .map(t => t.idx);
 
       // Count total selected clips
-      const selectedClipsCount = newTracks.reduce(
+      const selectedClipsCount = expandedTracks.reduce(
         (count, track) => count + track.clips.filter(c => c.selected).length + (track.midiClips?.filter(c => c.selected).length || 0),
         0
       );
@@ -895,7 +950,7 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       let newTimeSelection: TimeSelection | null = null;
       let newClipDurationIndicator: { startTime: number; endTime: number } | null = null;
       if (selectedClipsCount === 1) {
-        const selectedClip = newTracks
+        const selectedClip = expandedTracks
           .flatMap(track => [...track.clips, ...(track.midiClips || [])])
           .find(clip => clip.selected);
         if (selectedClip) {
@@ -912,12 +967,12 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       }
 
       // Determine if the clip was selected (not deselected)
-      const wasClipSelected = (newTracks[trackIndex]?.clips.find(c => c.id === clipId)?.selected
-        || newTracks[trackIndex]?.midiClips?.find(c => c.id === clipId)?.selected) ?? false;
+      const wasClipSelected = (expandedTracks[trackIndex]?.clips.find(c => c.id === clipId)?.selected
+        || expandedTracks[trackIndex]?.midiClips?.find(c => c.id === clipId)?.selected) ?? false;
 
       return {
         ...state,
-        tracks: newTracks,
+        tracks: expandedTracks,
         selectedTrackIndices: tracksWithSelection,
         selectedLabelIds: [], // Clear label selection when toggling clip
         timeSelection: newTimeSelection,
@@ -942,6 +997,64 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         timeSelection: state.timeSelection?.renderOnCanvas === false ? null : state.timeSelection,
         lastSelectedClip: null, // Clear range selection anchor when deselecting all
       };
+    }
+
+    case 'GROUP_SELECTED_CLIPS': {
+      // Collect selected clips and any old group IDs they belong to
+      let selectedCount = 0;
+      const oldGroupIds = new Set<string>();
+      for (const t of state.tracks) {
+        for (const c of t.clips) {
+          if (c.selected) {
+            selectedCount++;
+            if (c.groupId) oldGroupIds.add(c.groupId);
+          }
+        }
+      }
+
+      // Need at least 2 selected clips to form a group
+      if (selectedCount < 2) return state;
+
+      const newGroupId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+        ? crypto.randomUUID()
+        : `group-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      // Pass 1: assign new groupId to every selected clip
+      let newTracks = state.tracks.map(t => ({
+        ...t,
+        clips: t.clips.map(c =>
+          c.selected ? { ...c, groupId: newGroupId } : c
+        ),
+      }));
+
+      // Pass 2: for each old group, dissolve it if only 1 member remains
+      for (const oldId of oldGroupIds) {
+        let remainingCount = 0;
+        for (const t of newTracks) {
+          for (const c of t.clips) {
+            if (c.groupId === oldId) remainingCount++;
+          }
+        }
+        if (remainingCount <= 1) {
+          newTracks = newTracks.map(t => ({
+            ...t,
+            clips: t.clips.map(c => c.groupId === oldId ? { ...c, groupId: undefined } : c),
+          }));
+        }
+      }
+
+      return { ...state, tracks: newTracks };
+    }
+
+    case 'UNGROUP_CLIPS': {
+      const targetGroupId = action.payload.groupId;
+      const newTracks = state.tracks.map(t => ({
+        ...t,
+        clips: t.clips.map(c =>
+          c.groupId === targetGroupId ? { ...c, groupId: undefined } : c
+        ),
+      }));
+      return { ...state, tracks: newTracks };
     }
 
     case 'DELETE_TIME_RANGE': {
