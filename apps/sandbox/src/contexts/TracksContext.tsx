@@ -300,6 +300,28 @@ const initialState: TracksState = {
   canvasSnap: { subdivision: 1 },
 };
 
+/**
+ * Pure helper: expand the `selected` flag to include every clip whose `groupId`
+ * matches a currently-selected clip. Idempotent.
+ */
+export function expandSelectionToGroups(tracks: Track[]): Track[] {
+  const selectedGroupIds = new Set<string>();
+  for (const t of tracks) {
+    for (const c of t.clips) {
+      if (c.selected && c.groupId) selectedGroupIds.add(c.groupId);
+    }
+  }
+  if (selectedGroupIds.size === 0) return tracks;
+  return tracks.map(t => ({
+    ...t,
+    clips: t.clips.map(c =>
+      c.groupId && selectedGroupIds.has(c.groupId) && !c.selected
+        ? { ...c, selected: true }
+        : c
+    ),
+  }));
+}
+
 // Reducer
 export function tracksReducer(state: TracksState, action: TracksAction): TracksState {
   switch (action.type) {
