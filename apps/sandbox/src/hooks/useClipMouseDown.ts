@@ -21,6 +21,7 @@ interface ClipMouseDownConfig {
   TRACK_GAP: number;
   DEFAULT_TRACK_HEIGHT: number;
   CLIP_HEADER_HEIGHT: number;
+  onDragStart?: () => void;
 }
 
 /**
@@ -49,6 +50,7 @@ export function useClipMouseDown({
   TRACK_GAP,
   DEFAULT_TRACK_HEIGHT,
   CLIP_HEADER_HEIGHT,
+  onDragStart,
 }: ClipMouseDownConfig) {
 
   const handleClipMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -154,6 +156,7 @@ export function useClipMouseDown({
                 selectedClipsInitialPositions,
               };
               didDragRef.current = false; // Reset drag flag
+              onDragStart?.();
 
               // Only block propagation for header clicks (drag initiation)
               e.stopPropagation();

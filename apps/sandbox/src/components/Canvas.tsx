@@ -413,6 +413,7 @@ export function Canvas({
     TRACK_GAP,
     DEFAULT_TRACK_HEIGHT,
     CLIP_HEADER_HEIGHT,
+    onDragStart: () => setIsDraggingClips(true),
   });
 
   // Calculate grid line positions — three tiers in beats-measures mode (measure/beat/subdivision),
