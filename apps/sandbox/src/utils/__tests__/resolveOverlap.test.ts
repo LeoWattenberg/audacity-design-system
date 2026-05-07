@@ -164,4 +164,42 @@ describe('resolveOverlap', () => {
       },
     ]);
   });
+
+  it('splits the underlying clip when moving clip is fully inside it', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 0, duration: 10, trimStart: 0 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 2, trackIndex: 0, start: 3, duration: 4 }, // moving 3..7, underlying 0..10
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([2]));
+    expect(result.mutations).toEqual([
+      {
+        type: 'split',
+        clipId: 1,
+        trackIndex: 0,
+        leftEnd: 3,
+        rightStart: 7,
+      },
+    ]);
+  });
+
+  it('split is emitted as a single mutation regardless of the underlying clip duration', () => {
+    const tracks: ResolverTrack[] = [
+      track([{ id: 1, start: 2, duration: 20, trimStart: 0.5 }]),
+    ];
+    const intent: ClipPlacement[] = [
+      { clipId: 99, trackIndex: 0, start: 10, duration: 2 },
+    ];
+    const result = resolveOverlap(tracks, intent, new Set([99]));
+    expect(result.mutations).toEqual([
+      {
+        type: 'split',
+        clipId: 1,
+        trackIndex: 0,
+        leftEnd: 10,
+        rightStart: 12,
+      },
+    ]);
+  });
 });

@@ -85,7 +85,13 @@ export function resolveOverlap(
       if (fullyObscured) {
         // delete — implemented in a later task
       } else if (fullyInside) {
-        // split — implemented in a later task
+        mutations.push({
+          type: 'split',
+          clipId: underlying.id,
+          trackIndex: placement.trackIndex,
+          leftEnd: mStart,
+          rightStart: mEnd,
+        });
       } else if (overlapsRight) {
         mutations.push({
           type: 'trim',
