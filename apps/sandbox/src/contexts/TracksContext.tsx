@@ -35,6 +35,7 @@ export interface Clip {
   fullDuration?: number;
   deletedRegions?: DeletedRegion[]; // Sorted, non-overlapping deleted regions
   color?: 'cyan' | 'blue' | 'violet' | 'magenta' | 'red' | 'orange' | 'yellow' | 'green' | 'teal';
+  groupId?: string;
 }
 
 export interface Effect {
