@@ -138,7 +138,7 @@ export function EditorLayout(props: EditorLayoutProps) {
     showMixer,
   } = props;
 
-  const { setIsSpectrogramSettingsOpen } = useDialogs();
+  const { setIsSpectrogramSettingsOpen, setIsPluginManagerOpen } = useDialogs();
   const {
     effectsPanel, setEffectsPanel, setEffectDialog, setEffectSelectorMenu,
     setClipContextMenu, setTimeSelectionContextMenu, setTrackContextMenu, setTimelineRulerContextMenu,
@@ -157,7 +157,17 @@ export function EditorLayout(props: EditorLayoutProps) {
   // Pull MuseHub state (wallet, library, plugin-manager flags) from the
   // shared context so the picker, slot caret menus and marketplace modal all
   // stay in sync without prop-drilling.
-  const { purchasedEffects, disabledPluginIds, spend, addToLibrary } = useMuseHub();
+  const {
+    purchasedEffects,
+    installedEffects,
+    uninstalledIds,
+    installingIds,
+    disabledPluginIds,
+    spend,
+    addToLibrary,
+    uninstallEffect,
+    reinstallEffect,
+  } = useMuseHub();
   const purchasedIds = React.useMemo(
     () => new Set(purchasedEffects.map((e) => e.id)),
     [purchasedEffects]
@@ -404,7 +414,7 @@ export function EditorLayout(props: EditorLayoutProps) {
               onChangeEffect: (index, anchor) => {
                 setMarketplaceModal({ open: true, trackIndex, anchorRect: anchor, replaceIndex: index });
               },
-              purchasedEffects,
+              purchasedEffects: installedEffects,
               disabledPluginIds,
             }}
             masterSection={{
@@ -461,7 +471,7 @@ export function EditorLayout(props: EditorLayoutProps) {
               onChangeEffect: (index, anchor) => {
                 setMarketplaceModal({ open: true, trackIndex: undefined, anchorRect: anchor, replaceIndex: index });
               },
-              purchasedEffects,
+              purchasedEffects: installedEffects,
               disabledPluginIds,
             }}
             onClose={() => setEffectsPanel(null)}
@@ -1733,7 +1743,7 @@ export function EditorLayout(props: EditorLayoutProps) {
       isOpen={effectPicker.open}
       x={effectPicker.x}
       y={effectPicker.y}
-      purchasedEffects={purchasedEffects}
+      purchasedEffects={installedEffects}
       disabledPluginIds={disabledPluginIds}
       onClose={() => setEffectPicker((s) => ({ ...s, open: false }))}
       onPickEffect={(effect) => {
@@ -1801,12 +1811,24 @@ export function EditorLayout(props: EditorLayoutProps) {
         setMarketplaceModal({ open: false });
       }}
       purchasedIds={purchasedIds}
+      uninstalledIds={uninstalledIds}
+      installingIds={installingIds}
       onPurchase={(effect) => {
         // Mock entitlement: deduct the wallet and append the effect to the
         // shared library so picker menus + Plugin Manager all update.
         spend(effect.price ?? 0);
         addToLibrary({ id: effect.id, name: effect.name, vendor: effect.vendor });
       }}
+      onUninstallEffect={(effect) => {
+        // Owned-view "Uninstall" — remove the local install so the effect
+        // leaves the picker menus and the Plugin Manager dialog, but keep
+        // the entitlement so the user can reinstall without paying again.
+        uninstallEffect(effect.id);
+      }}
+      onReinstallEffect={(effect) => {
+        reinstallEffect(effect.id);
+      }}
+      onOpenPluginManager={() => setIsPluginManagerOpen(true)}
     />
     </div>
   );

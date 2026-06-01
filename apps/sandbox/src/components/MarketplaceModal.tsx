@@ -83,23 +83,44 @@ export interface MarketplaceModalProps {
   /** Confirmed purchase of a marketplace effect. Deduct from wallet and
    *  mark the effect as installed in the host's catalog. */
   onPurchase?: (effect: MarketplaceEffect) => void;
+  /** Optional callback to open the global Plugin Manager dialog — surfaced
+   *  as a link from the Owned view so users can manage installs there. */
+  onOpenPluginManager?: () => void;
+  /** Uninstall a previously-purchased effect (remove the local install but
+   *  keep the entitlement so the user can reinstall for free later). */
+  onUninstallEffect?: (effect: MarketplaceEffect) => void;
+  /** Reinstall an uninstalled effect — entitlement is preserved. */
+  onReinstallEffect?: (effect: MarketplaceEffect) => void;
+  /** Effects the user owns but has uninstalled locally — the marketplace
+   *  shows these as "Reinstall" instead of "Installed". */
+  uninstalledIds?: Set<string>;
+  /** Effects mid-install — the Owned row renders a progress indicator
+   *  instead of action buttons, and pickers skip them. */
+  installingIds?: Set<string>;
 }
 
 export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
   open,
   destinationName,
-  mode = 'add',
   currentEffect = null,
   purchasedIds,
   onClose,
   onAddEffect,
   onPurchase,
+  onOpenPluginManager,
+  onUninstallEffect,
+  onReinstallEffect,
+  uninstalledIds,
+  installingIds,
 }) => {
   const [manufacturer, setManufacturer] = useState<string>('All');
   // The library section is always a list (utility-style); only the MuseHub
   // section has a tile/list toggle so power users can flip the marketplace
   // into dense rows too.
   const [marketplaceView, setMarketplaceView] = useState<ViewMode>('tile');
+  // Primary view — Marketplace shows the full catalogue, Owned narrows to
+  // effects the user already has so they can browse just their library.
+  const [view, setView] = useState<'marketplace' | 'owned'>('marketplace');
   const [search, setSearch] = useState('');
   // Single-click on a library row is terminal (matches the old context-menu
   // speed of "press effect → it's added"). Marketplace items always require
@@ -122,11 +143,22 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
   };
 
   // Overlay session purchases onto the static catalog so freshly bought
-  // effects immediately read as "installed".
+  // effects immediately read as "installed" — unless the user has since
+  // uninstalled them, in which case they go back to "Reinstall" affordances.
   const catalog = useMemo(() => {
-    if (!purchasedIds || purchasedIds.size === 0) return CATALOG;
-    return CATALOG.map((e) => (purchasedIds.has(e.id) ? { ...e, installed: true } : e));
-  }, [purchasedIds]);
+    if ((!purchasedIds || purchasedIds.size === 0) && (!uninstalledIds || uninstalledIds.size === 0)) {
+      return CATALOG;
+    }
+    return CATALOG.map((e) => {
+      const purchased = purchasedIds?.has(e.id) ?? false;
+      const uninstalled = uninstalledIds?.has(e.id) ?? false;
+      if (!purchased) return e;
+      // Owned + uninstalled is still "installed: false" from the picker's
+      // perspective (it shouldn't show in playable lists), but downstream
+      // logic uses purchasedIds + uninstalledIds to render Reinstall.
+      return { ...e, installed: !uninstalled };
+    });
+  }, [purchasedIds, uninstalledIds]);
 
   // Manufacturers list pulled from the full catalog — installed and
   // marketplace items live in the same rail, distinguished only by their
@@ -140,6 +172,10 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return catalog.filter((e) => {
+      // Owned view = anything the user has an entitlement for, including
+      // items they've uninstalled locally.
+      const owned = purchasedIds?.has(e.id) ?? false;
+      if (view === 'owned' && !owned) return false;
       if (manufacturer !== 'All' && e.vendor !== manufacturer) return false;
       if (!term) return true;
       return (
@@ -148,7 +184,13 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
         (e.blurb ?? '').toLowerCase().includes(term)
       );
     });
-  }, [catalog, manufacturer, search]);
+  }, [catalog, view, manufacturer, search, purchasedIds]);
+
+  // Number of effects the user owns — shown next to the Owned tab.
+  const ownedCount = useMemo(
+    () => (purchasedIds ? purchasedIds.size : 0),
+    [purchasedIds],
+  );
 
   // Modal is marketplace-only now — installed effects live in the picker
   // context menu invoked from the "Effects" button. We still allow installed
@@ -158,14 +200,12 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
 
   const detail = detailId ? catalog.find((e) => e.id === detailId) ?? null : null;
 
-  // Library rows are single-click terminal (add + close). Marketplace rows
-  // route to details so users never accidentally trigger a purchase.
+  // Tiles and rows always open the store page now — clicking through to
+  // detail lets the user read the description / watch a tutorial / hit the
+  // "Add to {destination}" CTA from the hero. For installed effects, the
+  // shortcut to add lives in the picker context menu instead.
   const handleRowClick = (effect: MarketplaceEffect) => {
-    if (effect.installed) {
-      onAddEffect(effect);
-    } else {
-      setDetailId(effect.id);
-    }
+    setDetailId(effect.id);
   };
 
   // Price-chip click shortcut: open the unified purchase modal. The same
@@ -204,11 +244,6 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
         <header className="mp-header" data-mp-drag-handle>
           <div className="mp-header__title">
             <h2>MuseHub</h2>
-            {mode === 'replace' && (
-              <p className="mp-header__destination">
-                Replacing in <strong>{destinationName}</strong>
-              </p>
-            )}
           </div>
           <div className="mp-header__search">
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -247,6 +282,31 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
 
         <div className="mp-body">
           <aside className="mp-sidebar">
+            <div
+              className="mp-sidebar__segment"
+              role="tablist"
+              aria-label="Marketplace view"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'marketplace'}
+                className={`mp-sidebar__segment-tab ${view === 'marketplace' ? 'mp-sidebar__segment-tab--active' : ''}`}
+                onClick={() => setView('marketplace')}
+              >
+                Marketplace
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'owned'}
+                className={`mp-sidebar__segment-tab ${view === 'owned' ? 'mp-sidebar__segment-tab--active' : ''}`}
+                onClick={() => setView('owned')}
+              >
+                <span>Owned</span>
+                {ownedCount > 0 && <span className="mp-sidebar__segment-count">{ownedCount}</span>}
+              </button>
+            </div>
             <div className="mp-sidebar__section-title">Manufacturers</div>
             <div className="mp-sidebar__list">
               {manufacturers.map((m) => (
@@ -281,9 +341,28 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
                 {marketplaceHits.length > 0 && (
                   <section className="mp-section mp-section--marketplace">
                     <h3 className="mp-section__title">
-                      <span>From MuseHub</span>
+                      <span>{view === 'owned' ? 'Your library' : 'From MuseHub'}</span>
                       <span className="mp-section__count">{marketplaceHits.length}</span>
-                      <div className="mp-view-toggle" role="group" aria-label="Marketplace view mode">
+                      {view === 'owned' && onOpenPluginManager && (
+                        <button
+                          type="button"
+                          className="mp-section__link"
+                          onClick={onOpenPluginManager}
+                        >
+                          Open in Plugin Manager
+                          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                            <path d="M5 2h5v5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M10 2L5 7" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M8 7v3H2V4h3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      )}
+                      <div
+                        className="mp-view-toggle"
+                        role="group"
+                        aria-label="Marketplace view mode"
+                        style={view === 'owned' ? { display: 'none' } : undefined}
+                      >
                         <button
                           type="button"
                           className={`mp-view-btn ${marketplaceView === 'tile' ? 'mp-view-btn--active' : ''}`}
@@ -315,7 +394,9 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
                         </button>
                       </div>
                     </h3>
-                    {marketplaceView === 'tile' ? (
+                    {/* Owned view is a management surface — force list mode
+                        regardless of the tile/list toggle. */}
+                    {view === 'marketplace' && marketplaceView === 'tile' ? (
                       <div className="mp-grid">
                         {marketplaceHits.map((effect) => (
                           <EffectCard
@@ -323,24 +404,32 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
                             effect={effect}
                             favorite={favorites.has(effect.id)}
                             isCurrent={currentEffect?.id === effect.id}
+                            uninstalled={uninstalledIds?.has(effect.id) ?? false}
+                            installing={installingIds?.has(effect.id) ?? false}
                             onActivate={() => handleRowClick(effect)}
                             onDetails={() => setDetailId(effect.id)}
                             onBuy={() => handleBuyClick(effect)}
+                            onReinstall={() => onReinstallEffect?.(effect)}
                             onToggleFavorite={() => toggleFavorite(effect.id)}
                           />
                         ))}
                       </div>
                     ) : (
-                      <ul className="mp-list mp-list--embedded" role="listbox" aria-label="From MuseHub">
+                      <ul className="mp-list mp-list--embedded" role="listbox" aria-label={view === 'owned' ? 'Your library' : 'From MuseHub'}>
                         {marketplaceHits.map((effect) => (
                           <EffectListRow
                             key={effect.id}
                             effect={effect}
                             favorite={favorites.has(effect.id)}
                             isCurrent={currentEffect?.id === effect.id}
+                            manage={view === 'owned'}
+                            uninstalled={uninstalledIds?.has(effect.id) ?? false}
+                            installing={installingIds?.has(effect.id) ?? false}
                             onActivate={() => handleRowClick(effect)}
                             onDetails={() => setDetailId(effect.id)}
                             onBuy={() => handleBuyClick(effect)}
+                            onUninstall={() => onUninstallEffect?.(effect)}
+                            onReinstall={() => onReinstallEffect?.(effect)}
                             onToggleFavorite={() => toggleFavorite(effect.id)}
                           />
                         ))}
@@ -368,12 +457,15 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
           <EffectDetail
             effect={detail}
             destinationName={destinationName}
+            uninstalled={uninstalledIds?.has(detail.id) ?? false}
+            installing={installingIds?.has(detail.id) ?? false}
             onClose={() => setDetailId(null)}
             onAddEffect={() => {
               onAddEffect(detail);
               setDetailId(null);
             }}
             onBuy={() => handleBuyClick(detail)}
+            onReinstall={() => onReinstallEffect?.(detail)}
           />
         )}
 
@@ -535,11 +627,27 @@ const EffectCard: React.FC<{
   effect: MarketplaceEffect;
   favorite: boolean;
   isCurrent?: boolean;
+  /** Owned but not currently installed locally — show an Install button
+   *  instead of the price chip. */
+  uninstalled?: boolean;
+  /** Mid-install — show a small "Installing…" indicator. */
+  installing?: boolean;
   onActivate: () => void;
   onDetails: () => void;
   onBuy?: () => void;
+  onReinstall?: () => void;
   onToggleFavorite: () => void;
-}> = ({ effect, favorite, isCurrent = false, onActivate, onBuy, onToggleFavorite }) => {
+}> = ({
+  effect,
+  favorite,
+  isCurrent = false,
+  uninstalled = false,
+  installing = false,
+  onActivate,
+  onBuy,
+  onReinstall,
+  onToggleFavorite,
+}) => {
   // Built-ins don't have real artwork — render a flat tile with a category
   // glyph so they read as utilitarian tools, not branded products. Marketplace
   // items keep the rich vendor-coloured gradient.
@@ -573,6 +681,22 @@ const EffectCard: React.FC<{
         )}
         {isCurrent ? (
           <span className="mp-card__tag mp-card__tag--current">Current</span>
+        ) : installing ? (
+          <span className="mp-card__tag mp-card__tag--installing">Installing…</span>
+        ) : uninstalled ? (
+          // Owned but not installed locally — single-click reinstall, no
+          // wallet involvement.
+          <button
+            type="button"
+            className="mp-card__tag mp-card__tag--install mp-card__tag--button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReinstall?.();
+            }}
+            aria-label={`Install ${effect.name}`}
+          >
+            Install
+          </button>
         ) : effect.installed ? (
           <span className="mp-card__tag mp-card__tag--installed">Installed</span>
         ) : (
@@ -624,15 +748,51 @@ const EffectListRow: React.FC<{
   effect: MarketplaceEffect;
   favorite: boolean;
   isCurrent?: boolean;
+  /** When true, render as a management row (Update / Uninstall / Reinstall)
+   *  instead of the browse row (price chip / Installed badge). */
+  manage?: boolean;
+  /** True if the user has uninstalled this effect locally (but still owns
+   *  the entitlement) — swaps Uninstall for Reinstall. */
+  uninstalled?: boolean;
+  /** True while the local install/reinstall is in progress. */
+  installing?: boolean;
   onActivate: () => void;
   onDetails: () => void;
   onBuy?: () => void;
+  onUninstall?: () => void;
+  onReinstall?: () => void;
   onToggleFavorite: () => void;
-}> = ({ effect, favorite, isCurrent = false, onActivate, onDetails, onBuy, onToggleFavorite }) => {
+}> = ({
+  effect,
+  favorite,
+  isCurrent = false,
+  manage = false,
+  uninstalled = false,
+  installing = false,
+  onActivate,
+  onDetails,
+  onBuy,
+  onUninstall,
+  onReinstall,
+  onToggleFavorite,
+}) => {
+  // Two-click confirm for uninstall — first click flips the button into a
+  // "Confirm" state, second click actually removes the effect.
+  const [confirmingUninstall, setConfirmingUninstall] = React.useState(false);
+  // Mocked "update available" flag — flip half the catalog to give the demo
+  // some Update buttons to interact with.
+  const hasUpdate = React.useMemo(() => effect.id.charCodeAt(0) % 2 === 0, [effect.id]);
+  const [updating, setUpdating] = React.useState(false);
+  const handleUpdate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (updating) return;
+    setUpdating(true);
+    setTimeout(() => setUpdating(false), 800);
+  };
   return (
     <li
       role="button"
-      className={`mp-row ${isCurrent ? 'mp-row--current' : ''}`}
+      className={`mp-row ${isCurrent ? 'mp-row--current' : ''} ${manage ? 'mp-row--manage' : ''}`}
       onClick={onActivate}
       tabIndex={0}
       onKeyDown={(e) => {
@@ -670,8 +830,94 @@ const EffectListRow: React.FC<{
         {effect.name}
       </span>
       <span className="mp-row__vendor">{effect.vendor}</span>
-      {isCurrent ? (
+      {manage ? (
+        <div className="mp-row__actions" onClick={(e) => e.stopPropagation()}>
+          {installing ? (
+            <span className="mp-row__installing">
+              <span className="mp-row__installing-spinner" aria-hidden="true" />
+              <span>Installing…</span>
+            </span>
+          ) : uninstalled ? (
+            <button
+              type="button"
+              className="mp-row__action mp-row__action--update"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReinstall?.();
+              }}
+              title="Reinstall this effect — entitlement preserved"
+            >
+              Reinstall
+            </button>
+          ) : (
+            <>
+              {hasUpdate && (
+                <button
+                  type="button"
+                  className="mp-row__action mp-row__action--update"
+                  onClick={handleUpdate}
+                  disabled={updating}
+                  title="Update to latest version"
+                >
+                  {updating ? 'Updating…' : 'Update'}
+                </button>
+              )}
+              {confirmingUninstall ? (
+                <>
+                  <button
+                    type="button"
+                    className="mp-row__action mp-row__action--danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUninstall?.();
+                      setConfirmingUninstall(false);
+                    }}
+                  >
+                    Confirm uninstall
+                  </button>
+                  <button
+                    type="button"
+                    className="mp-row__action"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmingUninstall(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="mp-row__action"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmingUninstall(true);
+                  }}
+                  title="Remove the local install — your purchase stays in your library"
+                >
+                  Uninstall
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : isCurrent ? (
         <span className="mp-row__tag mp-row__tag--current">Current</span>
+      ) : installing ? (
+        <span className="mp-row__tag mp-row__tag--installing">Installing…</span>
+      ) : uninstalled ? (
+        <button
+          type="button"
+          className="mp-row__tag mp-row__tag--install mp-row__tag--button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReinstall?.();
+          }}
+          aria-label={`Install ${effect.name}`}
+        >
+          Install
+        </button>
       ) : effect.installed ? (
         <span className="mp-row__tag mp-row__tag--installed">Installed</span>
       ) : (
@@ -710,10 +956,22 @@ const EffectListRow: React.FC<{
 const EffectDetail: React.FC<{
   effect: MarketplaceEffect;
   destinationName: string;
+  uninstalled?: boolean;
+  installing?: boolean;
   onClose: () => void;
   onAddEffect: () => void;
   onBuy: () => void;
-}> = ({ effect, destinationName, onClose, onAddEffect, onBuy }) => {
+  onReinstall?: () => void;
+}> = ({
+  effect,
+  destinationName,
+  uninstalled = false,
+  installing = false,
+  onClose,
+  onAddEffect,
+  onBuy,
+  onReinstall,
+}) => {
   const price = effect.price ?? 0;
   const isFree = !effect.installed && price === 0;
   const builtIn = effect.installed && effect.vendor === 'Audacity';
@@ -768,7 +1026,7 @@ const EffectDetail: React.FC<{
               <p className="mp-detail__hero-blurb">{longBlurb}</p>
             </div>
             <div className="mp-detail__hero-actions">
-              {!effect.installed && (
+              {!effect.installed && !uninstalled && !installing && (
                 <button type="button" className="mp-detail__tip">
                   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
                     <path
@@ -779,7 +1037,15 @@ const EffectDetail: React.FC<{
                   <span>Tip</span>
                 </button>
               )}
-              {effect.installed ? (
+              {installing ? (
+                <button type="button" className="mp-detail__buy" disabled>
+                  <span>Installing…</span>
+                </button>
+              ) : uninstalled ? (
+                <button type="button" className="mp-detail__buy" onClick={onReinstall}>
+                  <span>Install</span>
+                </button>
+              ) : effect.installed ? (
                 <button type="button" className="mp-detail__buy" onClick={onAddEffect}>
                   <span>Add to {destinationName}</span>
                 </button>

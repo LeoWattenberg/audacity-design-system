@@ -76,7 +76,113 @@
   border-radius: 6px;
   padding: 2px;
   gap: 2px;
+}
+
+/* Section-title link — "Open in Plugin Manager" on the Owned page. */
+.mp-section__link {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: #B98CFF;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.mp-section__link:hover {
+  background: rgba(185, 140, 255, 0.12);
+  color: #D5B3FF;
+}
+
+/* Management row actions — Update + Uninstall buttons that replace the
+   trailing tag on the Owned page. */
+.mp-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
+
+.mp-row__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.mp-row__action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+.mp-row__action:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.mp-row__action--update {
+  color: #93B4FF;
+  border-color: rgba(99, 132, 247, 0.4);
+}
+
+.mp-row__action--update:hover:not(:disabled) {
+  background: rgba(99, 132, 247, 0.15);
+  border-color: rgba(99, 132, 247, 0.65);
+  color: #C0D2FF;
+}
+
+.mp-row__action--danger {
+  color: #FF8E8E;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.mp-row__action--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.7);
+  color: #FFB0B0;
+}
+
+/* Installing state — shown while the simulated local install runs. */
+.mp-row__installing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 500;
+}
+
+.mp-row__installing-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #93B4FF;
+  animation: mp-row-spin 700ms linear infinite;
+}
+
+@keyframes mp-row-spin {
+  to { transform: rotate(360deg); }
 }
 
 .mp-view-btn {
@@ -262,6 +368,59 @@
 .mp-source-tab--active {
   background: rgba(99, 132, 247, 0.25);
   color: #fff;
+}
+
+.mp-sidebar__segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.mp-sidebar__segment-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.mp-sidebar__segment-tab:hover { color: #fff; }
+
+.mp-sidebar__segment-tab--active {
+  background: rgba(99, 132, 247, 0.22);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(99, 132, 247, 0.4);
+}
+
+.mp-sidebar__segment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-sidebar__segment-tab--active .mp-sidebar__segment-count {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .mp-sidebar__section-title {
@@ -490,6 +649,18 @@
   color: #052E16;
 }
 
+/* Install (own but not installed locally) — emphasised so it's
+   distinguishable from a paid Buy chip at a glance. */
+.mp-card__tag--install {
+  background: #B98CFF;
+  color: #1B0F2E;
+}
+
+.mp-card__tag--installing {
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .mp-card__star {
   position: absolute;
   top: 6px;
@@ -560,6 +731,14 @@
   cursor: pointer;
   outline: none;
 }
+
+/* Management rows give the trailing column to the action cluster and hide
+   the per-row info button (details are reached by clicking the row). */
+.mp-row--manage {
+  grid-template-columns: 24px 1fr 200px auto;
+}
+
+.mp-row--manage .mp-row__info { display: none; }
 
 /* Drop the per-row divider on the final row of each list so it doesn't
    stack against the section divider below. */
@@ -633,6 +812,21 @@
 .mp-row__tag--price {
   background: rgba(99, 132, 247, 0.18);
   color: #BCC8FF;
+}
+
+.mp-row__tag--install {
+  background: rgba(185, 140, 255, 0.18);
+  color: #D5B3FF;
+}
+
+.mp-row__tag--install.mp-row__tag--button:hover {
+  background: #B98CFF;
+  color: #1B0F2E;
+}
+
+.mp-row__tag--installing {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .mp-row__tag--current {
