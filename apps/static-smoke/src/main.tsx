@@ -39,8 +39,10 @@ function App() {
         </ToolbarButtonGroup>
       </Toolbar>
       <p style={{ fontSize: 12, color: '#666', marginTop: 16 }}>
-        Inline glyph: <Icon name="record" size={14} /> If you can read this and
-        see styled buttons + a record dot above, standalone mode works.
+        Inline icon test — the record glyph should appear here:{' '}
+        <Icon name="record" size={14} />. If it renders as the MusescoreIcon
+        font character (a filled circle) instead of a blank square, the
+        bundled <code>@font-face</code> and font file are wired up correctly.
       </p>
     </div>
   );
