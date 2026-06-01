@@ -2,6 +2,8 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 import { Canvas } from './Canvas';
 import { MarketplaceModal, type MarketplaceEffect } from './MarketplaceModal';
+import { EffectPickerMenu } from './EffectPickerMenu';
+import { useMuseHub } from '../contexts/MuseHubContext';
 import { TrackControlSidePanel, TrackControlPanel, TimelineRuler, PlayheadCursor, VerticalRulerPanel, EffectsPanel, CustomScrollbar, TrackType, ThemeProvider, RulerFlyout, useTabOrder, useAccessibilityProfile, PianoRollPanel, PanelHeader } from '@audacity-ui/components';
 import type { SpectrogramScale, WaveformRulerFormat, PanelHeaderTab } from '@audacity-ui/components';
 import { MixerPanel, type MixerPanelChannel } from '@audacity-ui/components';
@@ -152,6 +154,23 @@ export function EditorLayout(props: EditorLayoutProps) {
      *  of appending a new one. */
     replaceIndex?: number;
   }>({ open: false });
+  // Pull MuseHub state (wallet, library, plugin-manager flags) from the
+  // shared context so the picker, slot caret menus and marketplace modal all
+  // stay in sync without prop-drilling.
+  const { purchasedEffects, disabledPluginIds, spend, addToLibrary } = useMuseHub();
+  const purchasedIds = React.useMemo(
+    () => new Set(purchasedEffects.map((e) => e.id)),
+    [purchasedEffects]
+  );
+  // Picker menu shown when "Effects" / "+" button is clicked. Categories of
+  // installed effects appear as submenus; "Get effects…" opens the marketplace.
+  const [effectPicker, setEffectPicker] = React.useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    trackIndex?: number;
+    anchorRect: DOMRect | null;
+  }>({ open: false, x: 0, y: 0, anchorRect: null });
   const [drawerHeight, setDrawerHeight] = React.useState(376);
   const [drawerActiveTab, setDrawerActiveTab] = React.useState<'mixer' | 'piano-roll'>('mixer');
   const [drawerTabOrder, setDrawerTabOrder] = React.useState<Array<'mixer' | 'piano-roll'>>(['mixer', 'piano-roll']);
@@ -361,8 +380,15 @@ export function EditorLayout(props: EditorLayoutProps) {
                 });
               },
               onAddEffect: (e) => {
-                const rect = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
-                setMarketplaceModal({ open: true, trackIndex, anchorRect: rect ?? null });
+                const target = e?.currentTarget as HTMLElement | undefined;
+                const rect = target?.getBoundingClientRect();
+                setEffectPicker({
+                  open: true,
+                  x: rect ? rect.right + 4 : 0,
+                  y: rect ? rect.top : 0,
+                  trackIndex,
+                  anchorRect: rect ?? null,
+                });
               },
               onContextMenu: (_e) => {
               },
@@ -378,6 +404,8 @@ export function EditorLayout(props: EditorLayoutProps) {
               onChangeEffect: (index, anchor) => {
                 setMarketplaceModal({ open: true, trackIndex, anchorRect: anchor, replaceIndex: index });
               },
+              purchasedEffects,
+              disabledPluginIds,
             }}
             masterSection={{
               effects: state.masterEffects,
@@ -409,8 +437,15 @@ export function EditorLayout(props: EditorLayoutProps) {
                 });
               },
               onAddEffect: (e) => {
-                const rect = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
-                setMarketplaceModal({ open: true, trackIndex: undefined, anchorRect: rect ?? null });
+                const target = e?.currentTarget as HTMLElement | undefined;
+                const rect = target?.getBoundingClientRect();
+                setEffectPicker({
+                  open: true,
+                  x: rect ? rect.right + 4 : 0,
+                  y: rect ? rect.top : 0,
+                  trackIndex: undefined,
+                  anchorRect: rect ?? null,
+                });
               },
               onContextMenu: (_e) => {
               },
@@ -426,6 +461,8 @@ export function EditorLayout(props: EditorLayoutProps) {
               onChangeEffect: (index, anchor) => {
                 setMarketplaceModal({ open: true, trackIndex: undefined, anchorRect: anchor, replaceIndex: index });
               },
+              purchasedEffects,
+              disabledPluginIds,
             }}
             onClose={() => setEffectsPanel(null)}
           />
@@ -1692,6 +1729,33 @@ export function EditorLayout(props: EditorLayoutProps) {
       );
     })()}
 
+    <EffectPickerMenu
+      isOpen={effectPicker.open}
+      x={effectPicker.x}
+      y={effectPicker.y}
+      purchasedEffects={purchasedEffects}
+      disabledPluginIds={disabledPluginIds}
+      onClose={() => setEffectPicker((s) => ({ ...s, open: false }))}
+      onPickEffect={(effect) => {
+        const newEffect = { id: effect.id, name: effect.name, enabled: true };
+        if (effectPicker.trackIndex === undefined) {
+          dispatch({ type: 'ADD_MASTER_EFFECT', payload: newEffect });
+        } else {
+          dispatch({
+            type: 'ADD_TRACK_EFFECT',
+            payload: { trackIndex: effectPicker.trackIndex, effect: newEffect },
+          });
+        }
+      }}
+      onOpenMarketplace={() => {
+        setMarketplaceModal({
+          open: true,
+          trackIndex: effectPicker.trackIndex,
+          anchorRect: effectPicker.anchorRect,
+        });
+      }}
+    />
+
     <MarketplaceModal
       open={marketplaceModal.open}
       anchorRect={marketplaceModal.anchorRect}
@@ -1736,10 +1800,12 @@ export function EditorLayout(props: EditorLayoutProps) {
         }
         setMarketplaceModal({ open: false });
       }}
+      purchasedIds={purchasedIds}
       onPurchase={(effect) => {
-        // Prototype: log only — wire to MuseHub purchase flow later.
-        // eslint-disable-next-line no-console
-        console.log('[MuseHub] purchase requested for', effect.id);
+        // Mock entitlement: deduct the wallet and append the effect to the
+        // shared library so picker menus + Plugin Manager all update.
+        spend(effect.price ?? 0);
+        addToLibrary({ id: effect.id, name: effect.name, vendor: effect.vendor });
       }}
     />
     </div>
