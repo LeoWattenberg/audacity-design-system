@@ -63,8 +63,40 @@ jobs:
       # provider — exactly what slipped through before 0.2.0. Runs against
       # the freshly built ./dist so we're testing what consumers actually
       # see, not the source.
-      - name: Standalone-mode smoke test
+      - name: Standalone-mode smoke test (in-package)
         run: pnpm --filter @dilsonspickles/components test:smoke
+
+      # Build the tiny static-smoke Vite app. It imports the priority
+      # surfaces with no providers — if a bundler / build-time regression
+      # creeps in (missing CSS export, broken tree-shake, etc.) it fails
+      # here before publish.
+      - name: Build standalone smoke page
+        run: pnpm --filter @dilsonspickles/static-smoke build
+
+      # Stronger check: pack the tarball, install it into a fresh project
+      # with React 18 (lowest supported peer) and re-run the smoke test
+      # against the installed copy. Catches peer-dep mismatches, missing
+      # `files` entries in the publish manifest, etc.
+      - name: Tarball-install smoke test (React 18)
+        run: |
+          set -euo pipefail
+          cd packages/components
+          npm pack
+          TARBALL="$(ls dilsonspickles-components-*.tgz | head -1)"
+          echo "Built tarball: $TARBALL"
+          # Use the absolute path before we leave the directory.
+          TARBALL_PATH="$(pwd)/$TARBALL"
+          SCRIPT_PATH="$(pwd)/scripts/smoke-test.mjs"
+          SMOKE_DIR="$(mktemp -d)"
+          cd "$SMOKE_DIR"
+          cat > package.json <<EOF
+          { "name": "external-smoke-test", "private": true, "type": "module" }
+          EOF
+          npm install --no-audit --no-fund react@18 react-dom@18 "$TARBALL_PATH"
+          # Resolve the installed entry point and hand it to the script.
+          INSTALLED_ENTRY="$(node -e "console.log(require.resolve('@dilsonspickles/components'))")"
+          echo "Installed entry: $INSTALLED_ENTRY"
+          SMOKE_TARGET="$INSTALLED_ENTRY" node "$SCRIPT_PATH"
 
       - name: Publish @dilsonspickles/components
         working-directory: packages/components

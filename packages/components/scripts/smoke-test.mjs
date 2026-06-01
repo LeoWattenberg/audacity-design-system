@@ -13,10 +13,19 @@ import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+// Import target:
+//   - default (no args)         → ./dist/index.mjs in this package
+//   - SMOKE_TARGET env var      → path or specifier passed verbatim to import()
+//   - first CLI argument        → same
+// The release workflow uses an external target so the test exercises an
+// installed copy (catches peer-dep mismatches, missing files in the
+// publish glob, etc.).
 const here = path.dirname(fileURLToPath(import.meta.url));
-const distEntry = path.resolve(here, '..', 'dist', 'index.mjs');
+const defaultEntry = path.resolve(here, '..', 'dist', 'index.mjs');
+const target = process.env.SMOKE_TARGET || process.argv[2] || defaultEntry;
 
-const pkg = await import(distEntry);
+console.log(`Smoke testing: ${target}`);
+const pkg = await import(target);
 
 const required = [
   'Icon',
