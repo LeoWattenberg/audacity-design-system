@@ -1,6 +1,6 @@
 {
-  "name": "@audacity-ui/components",
-  "version": "0.1.0",
+  "name": "@dilsonspickles/components",
+  "version": "0.2.0",
   "description": "UI component library for Audacity Design System",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -23,7 +23,8 @@
     "dev": "tsup --watch",
     "lint": "echo 'No linting configured yet'",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "keywords": [
     "audacity",
@@ -38,15 +39,18 @@
     "directory": "packages/components"
   },
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
-  "dependencies": {
-    "@audacity-ui/core": "workspace:*",
-    "@audacity-ui/tokens": "workspace:*"
-  },
+  "_comment": "Workspace siblings live under devDependencies so the monorepo build resolves them, but they don't appear as runtime dependencies in the published manifest — tsup bundles their compiled output into dist.",
   "devDependencies": {
+    "@audacity-ui/core": "workspace:*",
+    "@audacity-ui/tokens": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
