@@ -216,7 +216,7 @@ export function TransportToolbar({
   if (activeMenuItem === 'home') return null;
 
   return (
-    <Toolbar tabGroupId="tool-toolbar">
+    <Toolbar tabGroupId="tool-toolbar" enableTabGroup>
       {activeMenuItem === 'export' ? (
         <>
           <ToolbarButtonGroup gap={2}>

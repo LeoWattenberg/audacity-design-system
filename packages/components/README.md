@@ -1,84 +1,152 @@
 # @audacity-ui/components
 
-UI component library for Audacity Design System.
+React component library for the Audacity Design System.
 
-## Installation
+## Install
+
+This package is published to the **private** GitHub Packages registry under
+the `@audacity-ui` scope. Consuming projects need an `.npmrc` that points
+the scope at npm.pkg.github.com with a `GITHUB_TOKEN` that has
+`read:packages` permission.
+
+```ini
+# .npmrc
+@audacity-ui:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then:
 
 ```bash
+bun add @audacity-ui/components
+# or
 pnpm add @audacity-ui/components
+# or
+npm install @audacity-ui/components
 ```
 
-## Components
+React 18 or newer is a **peer dependency** — the package does not bundle it.
 
-### TrackControlPanel
+## Required CSS import
 
-A comprehensive track control panel component with volume slider, mute/solo buttons, and effects access.
+Components ship their styles + the embedded `MusescoreIcon` font file in a
+single stylesheet. Import it once at your app entry point:
 
-**Features:**
-- Track name display with microphone icon
-- Record/meter indicator button
-- Volume/pan slider
-- Mute and Solo toggle buttons
-- Effects button
-- Menu access
+```ts
+import '@audacity-ui/components/style.css';
+```
 
-**Usage:**
+After this, `<Icon>` (and anything that uses it — `TransportButton`,
+`ToolButton`, etc.) renders without any further setup.
+
+## Usage
+
+Components are designed to work standalone — **no theme provider is
+required**. Wrapping with `<ThemeProvider>` is optional and only needed if
+you want to override the default light-theme tokens.
+
+### Icon
 
 ```tsx
-import { TrackControlPanel } from '@audacity-ui/components';
-import '@audacity-ui/components/style.css';
+import { Icon, type IconName } from '@audacity-ui/components';
 
-function App() {
-  const [volume, setVolume] = useState(75);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSolo, setIsSolo] = useState(false);
-
-  return (
-    <TrackControlPanel
-      trackName="Mono track 1"
-      trackType="mono"
-      volume={volume}
-      pan={0}
-      isMuted={isMuted}
-      isSolo={isSolo}
-      onVolumeChange={setVolume}
-      onMuteToggle={() => setIsMuted(!isMuted)}
-      onSoloToggle={() => setIsSolo(!isSolo)}
-      onEffectsClick={() => console.log('Effects clicked')}
-      onMenuClick={() => console.log('Menu clicked')}
-    />
-  );
-}
+<Icon name="record" size={20} />
 ```
 
-**Props:**
+### Toolbar + ToolbarDivider + ToolbarButtonGroup
 
-| Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| `trackName` | `string` | - | Name of the track (required) |
-| `trackType` | `'mono' \| 'stereo'` | `'mono'` | Type of audio track |
-| `volume` | `number` | `75` | Volume level (0-100) |
-| `pan` | `number` | `0` | Pan position (-100 to 100) |
-| `isMuted` | `boolean` | `false` | Mute state |
-| `isSolo` | `boolean` | `false` | Solo state |
-| `isRecording` | `boolean` | `false` | Recording state |
-| `onVolumeChange` | `(volume: number) => void` | - | Volume change callback |
-| `onPanChange` | `(pan: number) => void` | - | Pan change callback |
-| `onMuteToggle` | `() => void` | - | Mute toggle callback |
-| `onSoloToggle` | `() => void` | - | Solo toggle callback |
-| `onRecordToggle` | `() => void` | - | Record toggle callback |
-| `onEffectsClick` | `() => void` | - | Effects button callback |
-| `onMenuClick` | `() => void` | - | Menu button callback |
-| `className` | `string` | `''` | Additional CSS class |
+```tsx
+import {
+  Toolbar,
+  ToolbarDivider,
+  ToolbarButtonGroup,
+} from '@audacity-ui/components';
+
+<Toolbar height={48}>
+  <ToolbarButtonGroup>
+    {/* buttons here */}
+  </ToolbarButtonGroup>
+  <ToolbarDivider />
+  <ToolbarButtonGroup>
+    {/* more buttons */}
+  </ToolbarButtonGroup>
+</Toolbar>
+```
+
+> **Keyboard navigation:** `Toolbar` supports arrow-key navigation via the
+> `enableTabGroup` prop, which defaults to **`false`**. Apps that want
+> arrow-key navigation across the toolbar set `enableTabGroup={true}`.
+
+### TransportButton
+
+```tsx
+import { TransportButton } from '@audacity-ui/components';
+
+<TransportButton icon="record" />
+<TransportButton icon="play" active />
+<TransportButton icon="loop" disabled />
+```
+
+### ToolButton
+
+```tsx
+import { ToolButton } from '@audacity-ui/components';
+
+<ToolButton icon="cog" ariaLabel="Settings" />
+<ToolButton icon="trim" label="Trim" />
+```
+
+## Theme overrides (optional)
+
+```tsx
+import {
+  ThemeProvider,
+  lightTheme,
+  darkTheme,
+  type ThemeTokens,
+} from '@audacity-ui/components';
+
+<ThemeProvider theme={darkTheme}>
+  <App />
+</ThemeProvider>
+```
+
+Without a `<ThemeProvider>`, components fall back to `lightTheme` baked into
+the package.
+
+## What's exported
+
+The package is a barrel of every component in `src/`. The surface most
+external consumers reach for first:
+
+| Export | Notes |
+| --- | --- |
+| `Icon`, `IconName` | Glyph component + name union |
+| `Toolbar`, `ToolbarDivider`, `ToolbarButtonGroup` | Top-level toolbar primitives |
+| `TransportButton` | Transport-style icon button (play / record / etc.) |
+| `ToolButton` | General-purpose tool button with optional label |
+| `ThemeProvider`, `lightTheme`, `darkTheme`, `ThemeTokens` | Theming surface |
+
+Other components (`ToggleButton`, `Tooltip`, `Knob`, `Clip`, label & track
+primitives, dialogs, etc.) are exported but not yet considered stable for
+external use.
+
+## Versioning
+
+The package follows semver. While the version is `0.x`, minor bumps may
+contain breaking changes — pin to an exact version in production.
 
 ## Development
 
 ```bash
 # Build the package
-pnpm build
+pnpm --filter @audacity-ui/components build
 
 # Watch mode for development
-pnpm dev
+pnpm --filter @audacity-ui/components dev
+
+# Run tests
+pnpm --filter @audacity-ui/components test
 ```
 
 ## License
