@@ -25,7 +25,7 @@ export interface ThemeProviderProps {
  *
  * @example
  * ```tsx
- * import { ThemeProvider, lightTheme, darkTheme } from '@audacity-ui/components';
+ * import { ThemeProvider, lightTheme, darkTheme } from '@dilsonspickles/components';
  *
  * function App() {
  *   const [isDark, setIsDark] = useState(false);
@@ -106,8 +106,11 @@ export function ThemeProvider({ theme = lightTheme, children }: ThemeProviderPro
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
 
+  // When no <ThemeProvider> ancestor is present (e.g. when the package is
+  // consumed by a marketing site that doesn't wrap its tree), fall back to
+  // the baked-in light theme so individual components still render.
   if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    return { theme: lightTheme };
   }
 
   return context;

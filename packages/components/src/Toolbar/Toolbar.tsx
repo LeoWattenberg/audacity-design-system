@@ -22,8 +22,10 @@ export interface ToolbarProps {
    */
   className?: string;
   /**
-   * Enable keyboard navigation as a tab group
-   * @default true
+   * Enable keyboard navigation as a tab group. Default is `false` so the
+   * component renders without requiring a tab-group manager — consumers
+   * (like the Audacity sandbox) that want arrow-key navigation can opt in.
+   * @default false
    */
   enableTabGroup?: boolean;
   /**
@@ -50,7 +52,7 @@ export function Toolbar({
   children,
   rightContent,
   className = '',
-  enableTabGroup = true,
+  enableTabGroup = false,
   startTabIndex: _startTabIndexProp,
   tabGroupId = 'transport-toolbar',
 }: ToolbarProps) {
