@@ -8,8 +8,10 @@ import { availableCommands } from '../data/commands';
 import { useDialogs } from '../contexts/DialogContext';
 import { MuseHubAccountSection } from './wallet/MuseHubAccountSection';
 import { useContextMenus } from '../contexts/ContextMenuContext';
-import { useMuseHub } from '../contexts/MuseHubContext';
-import { saveProject as museHubSaveProject, listProjects as museHubListProjects } from '../lib/musehub-client';
+import { useAdieu } from '../contexts/AdieuContext';
+import {
+  saveProject as adieuSaveProject,
+} from '../lib/adieu-client';
 
 export interface AppDialogsProps {
   // Welcome dialog
@@ -137,7 +139,11 @@ export interface AppDialogsProps {
 export function AppDialogs(props: AppDialogsProps) {
   const dialogs = useDialogs();
   const { effectDialog, setEffectDialog, effectContextMenu, setEffectContextMenu } = useContextMenus();
-  const { signedIn: museHubSignedIn, signIn: museHubSignIn } = useMuseHub();
+  const {
+    signedIn: adieuSignedIn,
+    signIn: adieuSignIn,
+    refreshProjects: adieuRefreshProjects,
+  } = useAdieu();
   const {
     welcomeDialog, audioEngine,
     tracks, masterEffects, dispatch,
@@ -149,7 +155,7 @@ export function AppDialogs(props: AppDialogsProps) {
     cloudProjectName, setCloudProjectName, currentProjectId,
     dontShowSyncAgain, setDontShowSyncAgain,
     dontShowSaveModalAgain, setDontShowSaveModalAgain,
-    indexedDBProjects, setIndexedDBProjects,
+    indexedDBProjects, setIndexedDBProjects: _setIndexedDBProjects,
     projectName, setProjectName,
     cloudAudioFiles: _cloudAudioFiles, setCloudAudioFiles,
     showVendorUI, setShowVendorUI,
@@ -435,10 +441,11 @@ export function AppDialogs(props: AppDialogsProps) {
                 toast.error('Please enter a project name');
                 return;
               }
-              if (!museHubSignedIn) {
-                // The user will come back to a fresh app state after OAuth;
-                // they'll need to re-open this dialog and click Save again.
-                void museHubSignIn();
+              if (!adieuSignedIn) {
+                // Cloud projects live in adieu (separate from moose-hub).
+                // The user signs in to adieu independently; they'll need to
+                // re-open this dialog and click Save again once they're in.
+                void adieuSignIn();
                 return;
               }
 
@@ -470,8 +477,11 @@ export function AppDialogs(props: AppDialogsProps) {
                 setIsCloudUploading(false);
                 setIsCloudProject(true);
                 try {
-                  const { projects } = await museHubListProjects();
-                  setIndexedDBProjects(projects);
+                  // Re-fetch the adieu project list so the HomeTab picks up
+                  // the new project on next render. AdieuContext owns the
+                  // state — passing it through here keeps the components
+                  // unaware that the source has changed.
+                  await adieuRefreshProjects();
                 } catch {
                   // Refresh failure is non-fatal — the save itself succeeded.
                 }
@@ -503,7 +513,7 @@ export function AppDialogs(props: AppDialogsProps) {
                 const title = cloudProjectName.trim() || 'Untitled Project';
 
                 try {
-                  await museHubSaveProject(currentProjectId ?? title, {
+                  await adieuSaveProject(currentProjectId ?? title, {
                     title,
                     data: projectData,
                     thumbnailDataUrl,

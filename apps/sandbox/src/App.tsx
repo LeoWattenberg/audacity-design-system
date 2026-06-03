@@ -4,11 +4,10 @@ import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
 import { ApplicationHeader, ProjectToolbar, GhostButton, ToolbarGroup, TimeCodeFormat, ToastContainer, toast, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem, type StoredProject } from '@dilsonspickles/components';
 import {
-  listProjects as museHubListProjects,
-  getProject as museHubGetProject,
-  assetUrl as museHubAssetUrl,
-  type MuseHubProjectSummary,
-} from './lib/musehub-client';
+  getProject as adieuGetProject,
+  assetUrl as adieuAssetUrl,
+  type AdieuProjectSummary,
+} from './lib/adieu-client';
 import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
@@ -31,6 +30,7 @@ import { RecordingManager } from './utils/RecordingManager';
 import { createMenuDefinitions } from './data/menuDefinitions';
 import { createInitialPlugins } from './data/plugins';
 import { MuseHubProvider, useMuseHub, useInstalledEffects } from './contexts/MuseHubContext';
+import { AdieuProvider, useAdieu } from './contexts/AdieuContext';
 import { MuseHubHomeAccountCard } from './components/wallet/MuseHubHomeAccountCard';
 import { useZoomControls } from './hooks/useZoomControls';
 import { usePlaybackControls } from './hooks/usePlaybackControls';
@@ -49,7 +49,7 @@ async function loadCloudProjectAsStored(
   id: string,
 ): Promise<StoredProject | null> {
   try {
-    const project = await museHubGetProject(id);
+    const project = await adieuGetProject(id);
     const ts = Date.parse(project.updatedAt) || Date.now();
     return {
       id: project.id,
@@ -57,7 +57,7 @@ async function loadCloudProjectAsStored(
       dateCreated: ts,
       dateModified: ts,
       thumbnailUrl: project.thumbnailUrl
-        ? museHubAssetUrl(project.thumbnailUrl)
+        ? adieuAssetUrl(project.thumbnailUrl)
         : undefined,
       isCloudProject: true,
       data: project.data,
@@ -67,14 +67,14 @@ async function loadCloudProjectAsStored(
   }
 }
 
-function cloudSummaryToStored(p: MuseHubProjectSummary): StoredProject {
+function cloudSummaryToStored(p: AdieuProjectSummary): StoredProject {
   const ts = Date.parse(p.updatedAt) || Date.now();
   return {
     id: p.id,
     title: p.title,
     dateCreated: ts,
     dateModified: ts,
-    thumbnailUrl: p.thumbnailUrl ? museHubAssetUrl(p.thumbnailUrl) : undefined,
+    thumbnailUrl: p.thumbnailUrl ? adieuAssetUrl(p.thumbnailUrl) : undefined,
     isCloudProject: true,
   };
 }
@@ -194,28 +194,14 @@ function CanvasDemoContent() {
   // the picker context menu and slot caret menus filter disabled plugins out.
   const { syncDisabledFromList, signedIn: museHubSignedIn } = useMuseHub();
 
-  // Cloud projects from moose-hub. Fetched whenever the user becomes signed
-  // in — when signed out we render the local IndexedDB list instead.
-  const [cloudProjects, setCloudProjects] = React.useState<StoredProject[]>([]);
-  React.useEffect(() => {
-    if (!museHubSignedIn) {
-      setCloudProjects([]);
-      return;
-    }
-    let cancelled = false;
-    museHubListProjects()
-      .then(({ projects }) => {
-        if (cancelled) return;
-        setCloudProjects(projects.map(cloudSummaryToStored));
-      })
-      .catch(() => {
-        // Network failure leaves the cloud list empty; the user can
-        // re-enter Home to retry.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [museHubSignedIn]);
+  // Cloud projects from adieu (the separate cloud-storage service).
+  // AdieuContext owns the fetch + visibility-refresh; we just adapt its
+  // summaries into StoredProject shape for the HomeTab list.
+  const { signedIn: adieuSignedIn, cloudProjects: adieuCloudProjects } = useAdieu();
+  const cloudProjects = React.useMemo<StoredProject[]>(
+    () => (adieuSignedIn ? adieuCloudProjects.map(cloudSummaryToStored) : []),
+    [adieuSignedIn, adieuCloudProjects],
+  );
   const cloudProjectIds = React.useMemo(
     () => new Set(cloudProjects.map((p) => p.id)),
     [cloudProjects],
@@ -223,6 +209,37 @@ function CanvasDemoContent() {
   React.useEffect(() => {
     syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
   }, [allPlugins, syncDisabledFromList]);
+
+  // Flag effects in the current project whose underlying plugins are no
+  // longer available — signed out (lost entitlement) or locally uninstalled.
+  // Mirrors how a real DAW shows "Missing plugin" warnings.
+  //
+  // Only fires when the set of missing names actually changes, so editing
+  // tracks doesn't re-pop the modal.
+  const lastMissingMissingRef = React.useRef<string>('');
+  React.useEffect(() => {
+    const builtInIds = new Set(getAllEffects().map((e) => e.id));
+    const installedIds = new Set(installedEffects.map((e) => e.id));
+    const missing = new Set<string>();
+    const scan = (effects: Array<{ id: string; name: string }> | undefined) => {
+      for (const e of effects ?? []) {
+        if (!builtInIds.has(e.id) && !installedIds.has(e.id)) missing.add(e.name);
+      }
+    };
+    for (const t of state.tracks) scan(t.effects);
+    scan(state.masterEffects);
+    const names = Array.from(missing).sort();
+    const sig = names.join('|');
+    if (sig === lastMissingMissingRef.current) return;
+    lastMissingMissingRef.current = sig;
+    if (names.length > 0) showMissingPlugins(names);
+  }, [
+    museHubSignedIn,
+    installedEffects,
+    state.tracks,
+    state.masterEffects,
+    showMissingPlugins,
+  ]);
 
   // Intercept setPlugins from the Plugin Manager so toggling an enabled
   // state both updates the local Plugin[] and the shared disabled-IDs set.
@@ -712,10 +729,33 @@ function CanvasDemoContent() {
   }, [spectralSelection, state.timeSelection, state.clipDurationIndicator, state.tracks]);
 
   // Project management
-  const { createNewProject, handleSaveToComputer } = useProjectManagement({
+  const { createNewProject, handleSaveToComputer, openProjectFromFile } = useProjectManagement({
     dispatch, currentProjectId, state, scrollContainerRef,
     setIsCloudProject, setCurrentProjectId, audioManagerRef,
   });
+
+  // Hidden file input for "Open from Computer". Click triggered from
+  // HomeTab's onOpenOther so we reuse an existing UI affordance instead
+  // of teaching HomeTab about a new button.
+  const openFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const handleOpenFromComputer = React.useCallback(() => {
+    openFileInputRef.current?.click();
+  }, []);
+  const handleOpenFileSelected = React.useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      // Reset so the same file can be picked again later.
+      e.target.value = '';
+      if (!file) return;
+      const projectId = await openProjectFromFile(file);
+      if (projectId) {
+        const updated = await getProjects();
+        setIndexedDBProjects(updated);
+        setActiveMenuItem('project');
+      }
+    },
+    [openProjectFromFile],
+  );
 
   // Generate tone handler
   const handleGenerateTone = async () => {
@@ -1117,6 +1157,15 @@ function CanvasDemoContent() {
         }}
       />
 
+      {/* Hidden file input for "Open from Computer" — triggered programmatically. */}
+      <input
+        ref={openFileInputRef}
+        type="file"
+        accept=".audacityweb,application/zip"
+        style={{ display: 'none' }}
+        onChange={handleOpenFileSelected}
+      />
+
       {activeMenuItem === 'home' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           <HomeTab
@@ -1124,12 +1173,19 @@ function CanvasDemoContent() {
             isSignedIn={isSignedIn}
             userName="Username"
             userAvatarUrl="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"
-            projects={museHubSignedIn
-              ? cloudProjects
-              : indexedDBProjects.filter(p =>
-                  // Always show uploading/cloud projects; otherwise only show projects with data or thumbnail
-                  p.isUploading || p.isCloudProject || (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
-                )}
+            projects={(() => {
+              const localList = indexedDBProjects.filter(p =>
+                p.isUploading || p.isCloudProject ||
+                (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
+              );
+              if (!adieuSignedIn) return localList;
+              // Signed in to adieu: show cloud projects first, then any
+              // local-only projects (those not also in the cloud list) so
+              // the user doesn't lose sight of them.
+              const cloudIds = new Set(cloudProjects.map(p => p.id));
+              const localOnly = localList.filter(p => !cloudIds.has(p.id));
+              return [...cloudProjects, ...localOnly];
+            })()}
             audioFiles={cloudAudioFiles}
             onDeleteAudioFile={(id) => setCloudAudioFiles(prev => prev.filter(f => f.id !== id))}
             onCreateAccount={() => {
@@ -1215,7 +1271,7 @@ function CanvasDemoContent() {
               } else {
               }
             }}
-            onOpenOther={() => console.log('Open other')}
+            onOpenOther={handleOpenFromComputer}
             onDeleteProject={async (projectId) => {
               await deleteProject(projectId);
               const updated = await getProjects();
@@ -1504,7 +1560,9 @@ function ThemedApp() {
               <DialogProvider>
                 <ContextMenuProvider>
                   <MuseHubProvider>
-                    <CanvasDemoContent />
+                    <AdieuProvider>
+                      <CanvasDemoContent />
+                    </AdieuProvider>
                   </MuseHubProvider>
                 </ContextMenuProvider>
               </DialogProvider>
