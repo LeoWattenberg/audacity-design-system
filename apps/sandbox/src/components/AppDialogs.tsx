@@ -2,6 +2,7 @@ import React from 'react';
 import { WelcomeDialog, EffectDialog, EffectHeader, EffectDialogContextMenu, AmplifyEffect, ReverbEffect, Dialog, DialogFooter, SignInActionBar, LabeledInput, SocialSignInButton, LabeledFormDivider, TextLink, Button, LabeledCheckbox, ContextMenuItem, SaveProjectModal, PreferencesModal, PluginBrowserDialog, MacroManager, ExportModal, ExportSettings, LabelEditor, PluginManagerDialog, Plugin, VSTEffectOptionsDialog, AlertDialog, toast } from '@dilsonspickles/components';
 import { EFFECT_REGISTRY } from '@audacity-ui/core';
 import { DebugPanel } from './DebugPanel';
+import { MissingPluginsModal } from './MissingPluginsModal';
 import { generateWaveform } from '../utils/waveformGenerator';
 import { saveProject, getProject, getProjects } from '../utils/projectDatabase';
 import { availableCommands } from '../data/commands';
@@ -1129,6 +1130,14 @@ export function AppDialogs(props: AppDialogsProps) {
         }}
       />
 
+      {/* Missing Plugins Modal */}
+      <MissingPluginsModal
+        isOpen={dialogs.isMissingPluginsModalOpen}
+        onClose={() => dialogs.setIsMissingPluginsModalOpen(false)}
+        pluginNames={dialogs.missingPluginNames}
+        os={os}
+      />
+
       {/* Alert Dialog */}
       <AlertDialog
         isOpen={dialogs.alertDialogOpen}
@@ -1189,6 +1198,13 @@ export function AppDialogs(props: AppDialogsProps) {
         }}
         onClearAllTracks={() => {
           dispatch({ type: 'SET_TRACKS', payload: [] });
+        }}
+        onTestMissingPlugins={() => {
+          dialogs.showMissingPlugins([
+            'MuseFX Reverb Pro',
+            'TapeSat 1973',
+            'CinemaVerb Spaces',
+          ]);
         }}
         onLoadColorTest={() => {
           const colors = ['cyan', 'blue', 'violet', 'magenta', 'red', 'orange', 'yellow', 'green', 'teal'] as const;

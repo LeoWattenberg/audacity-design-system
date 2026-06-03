@@ -3,7 +3,7 @@ import { generateRmsWaveform } from './utils/rmsWaveform';
 import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
 import { ApplicationHeader, ProjectToolbar, GhostButton, ToolbarGroup, TimeCodeFormat, ToastContainer, toast, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem } from '@dilsonspickles/components';
-import { type EnvelopePointStyleKey } from '@audacity-ui/core';
+import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
 // import { TimeSelectionContextMenu } from './components/TimeSelectionContextMenu';
@@ -64,6 +64,7 @@ function CanvasDemoContent() {
     setIsExportModalOpen, setIsLabelEditorOpen,
     setIsPluginManagerOpen, setIsMacroManagerOpen,
     setAlertDialogOpen, setIsDebugPanelOpen, setIsPluginBrowserOpen,
+    showMissingPlugins,
   } = useDialogs();
 
   const [isSignedIn, setIsSignedIn] = React.useState(true);
@@ -145,7 +146,7 @@ function CanvasDemoContent() {
 
   // Mirror the plugins' enabled/disabled state into the MuseHub context so
   // the picker context menu and slot caret menus filter disabled plugins out.
-  const { syncDisabledFromList } = useMuseHub();
+  const { syncDisabledFromList, signedIn: museHubSignedIn } = useMuseHub();
   React.useEffect(() => {
     syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
   }, [allPlugins, syncDisabledFromList]);
@@ -1089,6 +1090,29 @@ function CanvasDemoContent() {
                 if (project.data?.tracks) {
                   console.log('Restoring tracks:', project.data.tracks.length);
                   dispatch({ type: 'SET_TRACKS', payload: project.data.tracks });
+
+                  // If the user is signed out of MuseHub, any effects in the
+                  // project that aren't built-in Audacity effects are
+                  // inaccessible — surface them in the Missing plugins modal.
+                  if (!museHubSignedIn) {
+                    const builtIn = new Set(
+                      getAllEffects().map((e) => e.name.toLowerCase()),
+                    );
+                    const missing: string[] = [];
+                    const seen = new Set<string>();
+                    for (const track of project.data.tracks) {
+                      for (const effect of track.effects ?? []) {
+                        const name = effect.name;
+                        if (!builtIn.has(name.toLowerCase()) && !seen.has(name)) {
+                          seen.add(name);
+                          missing.push(name);
+                        }
+                      }
+                    }
+                    if (missing.length > 0) {
+                      showMissingPlugins(missing);
+                    }
+                  }
                 } else {
                   dispatch({ type: 'SET_TRACKS', payload: [] });
                 }

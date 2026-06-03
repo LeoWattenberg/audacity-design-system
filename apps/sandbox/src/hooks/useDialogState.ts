@@ -20,6 +20,7 @@ const DIALOG_IDS = [
   'spectrogramSettings',
   'pluginBrowser',
   'macroManager',
+  'missingPluginsModal',
 ] as const;
 
 export type DialogId = (typeof DIALOG_IDS)[number];
@@ -79,6 +80,13 @@ export interface UseDialogStateReturn {
 
   isMacroManagerOpen: boolean;
   setIsMacroManagerOpen: (open: boolean) => void;
+
+  isMissingPluginsModalOpen: boolean;
+  setIsMissingPluginsModalOpen: (open: boolean) => void;
+  /** Names of plugins reported as missing in the modal. */
+  missingPluginNames: string[];
+  /** Open the modal with a specific list of missing plugin names. */
+  showMissingPlugins: (names: string[]) => void;
 }
 
 /**
@@ -108,6 +116,7 @@ export interface UseDialogStateReturn {
  */
 export function useDialogState(): UseDialogStateReturn {
   const [openDialogs, setOpenDialogs] = useState<Set<string>>(() => new Set());
+  const [missingPluginNames, setMissingPluginNames] = useState<string[]>([]);
 
   const openDialog = useCallback((id: string) => {
     setOpenDialogs((prev) => {
@@ -168,8 +177,17 @@ export function useDialogState(): UseDialogStateReturn {
       setIsSpectrogramSettingsOpen: makeSetter('spectrogramSettings'),
       setIsPluginBrowserOpen: makeSetter('pluginBrowser'),
       setIsMacroManagerOpen: makeSetter('macroManager'),
+      setIsMissingPluginsModalOpen: makeSetter('missingPluginsModal'),
     }),
     [makeSetter],
+  );
+
+  const showMissingPlugins = useCallback(
+    (names: string[]) => {
+      setMissingPluginNames(names);
+      openDialog('missingPluginsModal');
+    },
+    [openDialog],
   );
 
   return {
@@ -194,6 +212,9 @@ export function useDialogState(): UseDialogStateReturn {
     isSpectrogramSettingsOpen: openDialogs.has('spectrogramSettings'),
     isPluginBrowserOpen: openDialogs.has('pluginBrowser'),
     isMacroManagerOpen: openDialogs.has('macroManager'),
+    isMissingPluginsModalOpen: openDialogs.has('missingPluginsModal'),
+    missingPluginNames,
+    showMissingPlugins,
 
     // Backwards-compatible setters
     ...setters,
