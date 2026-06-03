@@ -6,6 +6,7 @@ import { MuseWallet } from './wallet/MuseWallet';
 import { UserMenu } from './wallet/UserMenu';
 import { SignInRequiredPrompt } from './wallet/SignInRequiredPrompt';
 import { useSignedIn } from '../contexts/MuseHubContext';
+import { getPlugins, type MuseHubPlugin } from '../lib/musehub-client';
 import './MarketplaceModal.css';
 
 const DEFAULT_WIDTH = 920;
@@ -35,7 +36,9 @@ export interface MarketplaceEffect {
   blurb?: string;
 }
 
-const CATALOG: MarketplaceEffect[] = [
+// Fallback used when the moose-hub backend is unreachable (offline dev). The
+// real catalog is fetched on first modal open and cached at module scope.
+const CATALOG_FALLBACK: MarketplaceEffect[] = [
   // MuseHub marketplace — a spread of price tiers so the wallet/purchase flow
   // is demoable from a modest starting balance. Audacity's built-in effects
   // are excluded from the catalog since they're shipped with the app and live
@@ -59,6 +62,42 @@ const CATALOG: MarketplaceEffect[] = [
   { id: 'pultec',      name: 'Pultec EQP-1A',   vendor: 'UAD',             category: 'mastering',  installed: false, price: 299.0, color: '#92400E', blurb: 'Tube program EQ' },
   { id: 'rx-11',       name: 'RX 11 Standard',  vendor: 'iZotope',         category: 'mastering',  installed: false, price: 399.0, color: '#14B8A6', blurb: 'Audio repair suite' },
 ];
+
+// Fallback colour for server entries that don't ship one. The marketplace
+// tile rendering requires a colour so we never hand it `undefined`.
+const DEFAULT_TILE_COLOR = '#475569';
+
+function toMarketplaceEffect(p: MuseHubPlugin): MarketplaceEffect {
+  return {
+    id: p.id,
+    name: p.name,
+    vendor: p.vendor,
+    category: p.category as EffectCategory,
+    // Server doesn't track local install state — derived client-side from
+    // purchasedIds + uninstalledIds in the useMemo below.
+    installed: false,
+    price: p.priceCents / 100,
+    color: p.color ?? DEFAULT_TILE_COLOR,
+    blurb: p.blurb,
+  };
+}
+
+// Module-scope cache so re-opening the modal doesn't re-fetch.
+let catalogCache: MarketplaceEffect[] | null = null;
+
+async function fetchCatalog(): Promise<MarketplaceEffect[]> {
+  if (catalogCache) return catalogCache;
+  try {
+    const { plugins } = await getPlugins();
+    catalogCache = plugins.map(toMarketplaceEffect);
+    return catalogCache;
+  } catch {
+    // Server unreachable — fall back to the hardcoded catalog so the modal
+    // is still demoable offline. We don't cache this so a later open can
+    // try the network again.
+    return CATALOG_FALLBACK;
+  }
+}
 
 type ViewMode = 'tile' | 'list';
 
@@ -133,6 +172,22 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
   const [signInGate, setSignInGate] = useState<string | null>(null);
   const signedIn = useSignedIn();
 
+  // Live catalog from moose-hub, falling back to the hardcoded list for
+  // offline dev. Fetched on first modal open and reused thereafter.
+  const [catalogSource, setCatalogSource] = useState<MarketplaceEffect[]>(
+    () => catalogCache ?? CATALOG_FALLBACK,
+  );
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetchCatalog().then((next) => {
+      if (!cancelled) setCatalogSource(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   const toggleFavorite = (id: string) => {
     setFavorites((prev) => {
       const next = new Set(prev);
@@ -147,9 +202,9 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
   // uninstalled them, in which case they go back to "Reinstall" affordances.
   const catalog = useMemo(() => {
     if ((!purchasedIds || purchasedIds.size === 0) && (!uninstalledIds || uninstalledIds.size === 0)) {
-      return CATALOG;
+      return catalogSource;
     }
-    return CATALOG.map((e) => {
+    return catalogSource.map((e) => {
       const purchased = purchasedIds?.has(e.id) ?? false;
       const uninstalled = uninstalledIds?.has(e.id) ?? false;
       if (!purchased) return e;
@@ -158,7 +213,7 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
       // logic uses purchasedIds + uninstalledIds to render Reinstall.
       return { ...e, installed: !uninstalled };
     });
-  }, [purchasedIds, uninstalledIds]);
+  }, [catalogSource, purchasedIds, uninstalledIds]);
 
   // Manufacturers list pulled from the full catalog — installed and
   // marketplace items live in the same rail, distinguished only by their

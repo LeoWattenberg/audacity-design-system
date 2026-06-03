@@ -2,7 +2,13 @@ import React from 'react';
 import { generateRmsWaveform } from './utils/rmsWaveform';
 import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
-import { ApplicationHeader, ProjectToolbar, GhostButton, ToolbarGroup, TimeCodeFormat, ToastContainer, toast, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem } from '@dilsonspickles/components';
+import { ApplicationHeader, ProjectToolbar, GhostButton, ToolbarGroup, TimeCodeFormat, ToastContainer, toast, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem, type StoredProject } from '@dilsonspickles/components';
+import {
+  listProjects as museHubListProjects,
+  getProject as museHubGetProject,
+  assetUrl as museHubAssetUrl,
+  type MuseHubProjectSummary,
+} from './lib/musehub-client';
 import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
@@ -36,6 +42,42 @@ import { ContextMenuProvider, useContextMenus } from './contexts/ContextMenuCont
 import { useLoopRegion } from './hooks/useLoopRegion';
 
 const MIN_ZOOM = 10; // Minimum pixels per second (matches useZoomControls)
+
+// Fetch a cloud project and shape it like an IndexedDB project so the
+// existing onOpenProject hydration code can consume it unchanged.
+async function loadCloudProjectAsStored(
+  id: string,
+): Promise<StoredProject | null> {
+  try {
+    const project = await museHubGetProject(id);
+    const ts = Date.parse(project.updatedAt) || Date.now();
+    return {
+      id: project.id,
+      title: project.title,
+      dateCreated: ts,
+      dateModified: ts,
+      thumbnailUrl: project.thumbnailUrl
+        ? museHubAssetUrl(project.thumbnailUrl)
+        : undefined,
+      isCloudProject: true,
+      data: project.data,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function cloudSummaryToStored(p: MuseHubProjectSummary): StoredProject {
+  const ts = Date.parse(p.updatedAt) || Date.now();
+  return {
+    id: p.id,
+    title: p.title,
+    dateCreated: ts,
+    dateModified: ts,
+    thumbnailUrl: p.thumbnailUrl ? museHubAssetUrl(p.thumbnailUrl) : undefined,
+    isCloudProject: true,
+  };
+}
 
 type Workspace = 'classic' | 'spectral-editing';
 
@@ -151,6 +193,33 @@ function CanvasDemoContent() {
   // Mirror the plugins' enabled/disabled state into the MuseHub context so
   // the picker context menu and slot caret menus filter disabled plugins out.
   const { syncDisabledFromList, signedIn: museHubSignedIn } = useMuseHub();
+
+  // Cloud projects from moose-hub. Fetched whenever the user becomes signed
+  // in — when signed out we render the local IndexedDB list instead.
+  const [cloudProjects, setCloudProjects] = React.useState<StoredProject[]>([]);
+  React.useEffect(() => {
+    if (!museHubSignedIn) {
+      setCloudProjects([]);
+      return;
+    }
+    let cancelled = false;
+    museHubListProjects()
+      .then(({ projects }) => {
+        if (cancelled) return;
+        setCloudProjects(projects.map(cloudSummaryToStored));
+      })
+      .catch(() => {
+        // Network failure leaves the cloud list empty; the user can
+        // re-enter Home to retry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [museHubSignedIn]);
+  const cloudProjectIds = React.useMemo(
+    () => new Set(cloudProjects.map((p) => p.id)),
+    [cloudProjects],
+  );
   React.useEffect(() => {
     syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
   }, [allPlugins, syncDisabledFromList]);
@@ -1055,10 +1124,12 @@ function CanvasDemoContent() {
             isSignedIn={isSignedIn}
             userName="Username"
             userAvatarUrl="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"
-            projects={indexedDBProjects.filter(p =>
-              // Always show uploading/cloud projects; otherwise only show projects with data or thumbnail
-              p.isUploading || p.isCloudProject || (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
-            )}
+            projects={museHubSignedIn
+              ? cloudProjects
+              : indexedDBProjects.filter(p =>
+                  // Always show uploading/cloud projects; otherwise only show projects with data or thumbnail
+                  p.isUploading || p.isCloudProject || (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
+                )}
             audioFiles={cloudAudioFiles}
             onDeleteAudioFile={(id) => setCloudAudioFiles(prev => prev.filter(f => f.id !== id))}
             onCreateAccount={() => {
@@ -1083,7 +1154,12 @@ function CanvasDemoContent() {
             }}
             onOpenProject={async (projectId) => {
               console.log('Opening existing project:', projectId);
-              const project = await getProject(projectId);
+              // Cloud projects come from moose-hub; locals from IndexedDB.
+              // The lists are presented exclusively (no merged view) so this
+              // dispatch is unambiguous.
+              const project = cloudProjectIds.has(projectId)
+                ? await loadCloudProjectAsStored(projectId)
+                : await getProject(projectId);
               if (project) {
                 setCurrentProjectId(projectId);
 

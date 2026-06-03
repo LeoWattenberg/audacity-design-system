@@ -4,11 +4,12 @@ import { EFFECT_REGISTRY } from '@audacity-ui/core';
 import { DebugPanel } from './DebugPanel';
 import { MissingPluginsModal } from './MissingPluginsModal';
 import { generateWaveform } from '../utils/waveformGenerator';
-import { saveProject, getProject, getProjects } from '../utils/projectDatabase';
 import { availableCommands } from '../data/commands';
 import { useDialogs } from '../contexts/DialogContext';
 import { MuseHubAccountSection } from './wallet/MuseHubAccountSection';
 import { useContextMenus } from '../contexts/ContextMenuContext';
+import { useMuseHub } from '../contexts/MuseHubContext';
+import { saveProject as museHubSaveProject, listProjects as museHubListProjects } from '../lib/musehub-client';
 
 export interface AppDialogsProps {
   // Welcome dialog
@@ -136,6 +137,7 @@ export interface AppDialogsProps {
 export function AppDialogs(props: AppDialogsProps) {
   const dialogs = useDialogs();
   const { effectDialog, setEffectDialog, effectContextMenu, setEffectContextMenu } = useContextMenus();
+  const { signedIn: museHubSignedIn, signIn: museHubSignIn } = useMuseHub();
   const {
     welcomeDialog, audioEngine,
     tracks, masterEffects, dispatch,
@@ -429,97 +431,99 @@ export function AppDialogs(props: AppDialogsProps) {
             primaryText="Done"
             secondaryText="Cancel"
             onPrimaryClick={() => {
-              if (isSignedIn) {
-                dialogs.setIsSaveToCloudDialogOpen(false);
-                dialogs.setIsSyncingDialogOpen(true);
-                setIsCloudUploading(true);
+              if (!cloudProjectName.trim()) {
+                toast.error('Please enter a project name');
+                return;
+              }
+              if (!museHubSignedIn) {
+                // The user will come back to a fresh app state after OAuth;
+                // they'll need to re-open this dialog and click Save again.
+                void museHubSignIn();
+                return;
+              }
 
-                if (currentProjectId) {
-                  (async () => {
-                    let thumbnailUrl: string | undefined;
-                    if (scrollContainerRef.current) {
-                      try {
-                        const domtoimage = (await import('dom-to-image-more')).default;
-                        thumbnailUrl = await domtoimage.toJpeg(scrollContainerRef.current, {
-                          quality: 0.8,
-                          bgcolor: '#F5F5F7',
-                          width: 448,
-                          height: 252,
-                          style: { transform: 'scale(1)', transformOrigin: 'top left' },
-                        });
-                      } catch {
-                        // Continue without thumbnail
-                      }
-                    }
-                    const proj = await getProject(currentProjectId);
-                    const projectData = { tracks, playheadPosition: 0 };
-                    if (proj) {
-                      await saveProject({ ...proj, title: cloudProjectName.trim() || proj.title, isUploading: true, thumbnailUrl: thumbnailUrl ?? proj.thumbnailUrl, data: projectData });
-                    } else {
-                      await saveProject({
-                        id: currentProjectId,
-                        title: cloudProjectName.trim() || 'Untitled Project',
-                        dateCreated: Date.now(),
-                        dateModified: Date.now(),
-                        isCloudProject: false,
-                        isUploading: true,
-                        thumbnailUrl,
-                        data: projectData,
-                      });
-                    }
-                    const updated = await getProjects();
-                    setIndexedDBProjects(updated);
-                  })();
+              dialogs.setIsSaveToCloudDialogOpen(false);
+              dialogs.setIsSyncingDialogOpen(true);
+              setIsCloudUploading(true);
+
+              const uploadToastId = toast.progress('Uploading audio to cloud...');
+              const startTime = Date.now();
+              const MIN_DURATION_MS = 1500;
+              const PRETEND_TOTAL_MS = 10000;
+
+              let progress = 0;
+              const interval = setInterval(() => {
+                progress = Math.min(progress + 1, 99);
+                const elapsed = Date.now() - startTime;
+                const remaining = Math.max(0, PRETEND_TOTAL_MS - elapsed);
+                const secondsRemaining = Math.ceil(remaining / 1000);
+                const timeRemainingText = secondsRemaining === 1
+                  ? '1 second remaining'
+                  : `${secondsRemaining} seconds remaining`;
+                toast.updateProgress(uploadToastId, progress, timeRemainingText);
+              }, 100);
+
+              const finish = async () => {
+                clearInterval(interval);
+                toast.updateProgress(uploadToastId, 100, 'Done');
+                setTimeout(() => toast.dismiss(uploadToastId), 200);
+                setIsCloudUploading(false);
+                setIsCloudProject(true);
+                try {
+                  const { projects } = await museHubListProjects();
+                  setIndexedDBProjects(projects);
+                } catch {
+                  // Refresh failure is non-fatal — the save itself succeeded.
+                }
+                toast.success(
+                  'Project saved to cloud!',
+                  'All saved changes will now sync to the cloud. You can access your project from any device.',
+                  [{ label: 'View on audio.com', onClick: () => console.log('View on audio.com') }],
+                  0,
+                );
+              };
+
+              (async () => {
+                let thumbnailDataUrl: string | undefined;
+                if (scrollContainerRef.current) {
+                  try {
+                    const domtoimage = (await import('dom-to-image-more')).default;
+                    thumbnailDataUrl = await domtoimage.toJpeg(scrollContainerRef.current, {
+                      quality: 0.8,
+                      bgcolor: '#F5F5F7',
+                      width: 448,
+                      height: 252,
+                      style: { transform: 'scale(1)', transformOrigin: 'top left' },
+                    });
+                  } catch {
+                    // Continue without thumbnail
+                  }
+                }
+                const projectData = { tracks, playheadPosition: 0 };
+                const title = cloudProjectName.trim() || 'Untitled Project';
+
+                try {
+                  await museHubSaveProject(currentProjectId ?? title, {
+                    title,
+                    data: projectData,
+                    thumbnailDataUrl,
+                  });
+                } catch (err) {
+                  clearInterval(interval);
+                  toast.dismiss(uploadToastId);
+                  setIsCloudUploading(false);
+                  toast.error(
+                    `Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                  );
+                  return;
                 }
 
-                const uploadToastId = toast.progress('Uploading audio to cloud...');
-
-                const totalDuration = 10000;
-                const updateInterval = 100;
-                let progress = 0;
-                const startTime = Date.now();
-
-                const interval = setInterval(() => {
-                  progress += 1;
-                  const elapsed = Date.now() - startTime;
-                  const remaining = Math.max(0, totalDuration - elapsed);
-                  const secondsRemaining = Math.ceil(remaining / 1000);
-                  const timeRemainingText = secondsRemaining === 1
-                    ? '1 second remaining'
-                    : `${secondsRemaining} seconds remaining`;
-
-                  toast.updateProgress(uploadToastId, progress, timeRemainingText);
-
-                  if (progress >= 100) {
-                    clearInterval(interval);
-                    setTimeout(async () => {
-                      toast.dismiss(uploadToastId);
-                      setIsCloudUploading(false);
-                      setIsCloudProject(true);
-                      if (currentProjectId) {
-                        const proj = await getProject(currentProjectId);
-                        if (proj) {
-                          await saveProject({ ...proj, isCloudProject: true, isUploading: false, data: proj.data ?? { tracks, playheadPosition: 0 } });
-                          const updated = await getProjects();
-                          setIndexedDBProjects(updated);
-                        }
-                      }
-                      toast.success(
-                        'Project saved to cloud!',
-                        'All saved changes will now sync to the cloud. You can access your project from any device.',
-                        [
-                          { label: 'View on audio.com', onClick: () => console.log('View on audio.com') }
-                        ],
-                        0
-                      );
-                    }, 200);
-                  }
-                }, updateInterval);
-              } else if (cloudProjectName.trim()) {
-                dialogs.setIsCreateAccountOpen(true);
-              } else {
-                toast.error('Please enter a project name');
-              }
+                // Keep the progress bar on screen for at least MIN_DURATION_MS
+                // so the success feels considered rather than instantaneous.
+                const elapsed = Date.now() - startTime;
+                const delay = Math.max(0, MIN_DURATION_MS - elapsed);
+                setTimeout(() => { void finish(); }, delay);
+              })();
             }}
             onSecondaryClick={() => {
               dialogs.setIsSaveToCloudDialogOpen(false);
