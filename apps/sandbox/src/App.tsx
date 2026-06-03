@@ -18,6 +18,9 @@ const TokenReview = React.lazy(() =>
   import('./pages/TokenReview').then(m => ({ default: m.TokenReview }))
 );
 const SpectralRulerDemo = React.lazy(() => import('./pages/SpectralRulerDemo'));
+const OAuthCallback = React.lazy(() =>
+  import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback }))
+);
 import { RecordingManager } from './utils/RecordingManager';
 import { createMenuDefinitions } from './data/menuDefinitions';
 import { createInitialPlugins } from './data/plugins';
@@ -1441,6 +1444,17 @@ export default function App() {
   // Simple routing: check URL query params
   const params = new URLSearchParams(window.location.search);
   const page = params.get('page');
+
+  // OAuth callback from moose-hub. Exchanges code for tokens, then redirects
+  // to "/". Rendered outside the providers because the rest of the app
+  // expects a hydrated MuseHubContext, which can't run until tokens land.
+  if (window.location.pathname === '/oauth/callback') {
+    return (
+      <React.Suspense fallback={<div>Loading...</div>}>
+        <OAuthCallback />
+      </React.Suspense>
+    );
+  }
 
   // Show token review page if ?page=tokens
   if (page === 'tokens') {

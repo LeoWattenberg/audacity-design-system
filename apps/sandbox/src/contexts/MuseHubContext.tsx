@@ -1,15 +1,39 @@
-// Single source of truth for the MuseHub data layer:
-//   - the user's wallet balance and sign-in state
-//   - the library of effects they've purchased this session
-//   - which plugin IDs are currently disabled in the Plugin Manager
+// Single source of truth for the MuseHub data layer.
+//
+// Authentication, wallet, and library entitlements are owned by the moose-hub
+// backend (http://localhost:3000). On mount we hydrate from the server if a
+// token is present. signIn redirects to moose-hub's OAuth /authorize page;
+// the demo never sees the user's password.
+//
+// Local-only state (kept client-side):
+//   - installingIds   — transient install animations
+//   - uninstalledIds  — locally-uninstalled (but still entitled) plugins
+//   - disabledPluginIds — Plugin Manager toggles
 //
 // Lives alongside the other app-level providers in App.tsx. Components use
 // the granular hooks (useWalletBalance, useSignedIn, useUser,
 // usePurchasedEffects, useDisabledPlugins) when they only need one slice,
 // or useMuseHub() for the full surface (actions + state).
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { AuthDialog } from '../components/wallet/AuthDialog';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import {
+  hasToken,
+  login as museHubLogin,
+  logout as museHubLogout,
+  getUserInfo,
+  getWallet,
+  getLibrary,
+  spendWallet,
+  buyPlugin,
+  type MuseHubEntitlement,
+} from '../lib/musehub-client';
 
 export interface UserProfile {
   name: string;
@@ -23,45 +47,38 @@ export interface PurchasedEffect {
   vendor: string;
 }
 
-export type AuthDialogMode = 'closed' | 'sign-in' | 'create-account';
-
 interface MuseHubContextValue {
   // ---- Wallet ---------------------------------------------------------
+  /** Wallet balance in USD (the server stores cents; this is dollars). */
   balance: number;
   signedIn: boolean;
   user: UserProfile;
-  /** Resolves on success. Rejects with a user-facing error message if
-   *  the (mock) validation fails. */
-  signIn: (email: string, password: string) => Promise<void>;
-  /** Same shape — succeeds for any input that passes the mock validator. */
-  createAccount: (input: { email: string; password: string; displayName: string }) => Promise<void>;
-  signOut: () => void;
-  spend: (amount: number) => void;
-  setBalance: (next: number) => void;
-
-  // ---- Auth dialog ----------------------------------------------------
-  /** Open / closed state of the global MuseHubAuthDialog. */
-  authDialog: AuthDialogMode;
-  openAuthDialog: (mode?: 'sign-in' | 'create-account') => void;
-  closeAuthDialog: () => void;
+  /** Kick off OAuth — navigates to moose-hub /authorize and never returns
+   *  locally. Resolution happens on the /oauth/callback page. */
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  /** Charge the wallet for an arbitrary amount in USD. Returns once the
+   *  server confirms. Optimistic local update is reconciled to the server
+   *  response. */
+  spend: (amountUsd: number, pluginId: string) => Promise<void>;
 
   // ---- Library --------------------------------------------------------
-  /** Everything the user has bought this session — the full set of
-   *  entitlements, regardless of whether the local copy is currently
-   *  installed. */
+  /** Everything the user has bought — the full set of entitlements,
+   *  regardless of whether the local copy is currently installed. */
   purchasedEffects: PurchasedEffect[];
   /** Effects the user has uninstalled locally — the entitlement remains so
-   *  they can reinstall without paying again. */
+   *  they can reinstall without paying again. Client-only state. */
   uninstalledIds: Set<string>;
   /** Effects currently being installed locally (purchase complete, install
-   *  pending). The Owned page renders these with a progress indicator and
-   *  they aren't yet listed in pickers / Plugin Manager. */
+   *  pending). Transient and client-only. */
   installingIds: Set<string>;
   /** Effects currently installed locally (purchased AND not uninstalled
    *  AND not still installing). */
   installedEffects: PurchasedEffect[];
-  addToLibrary: (effect: PurchasedEffect) => void;
-  /** Drop the entitlement entirely — the user would need to buy it again. */
+  /** Purchase a plugin: atomic debit + entitlement on the server. */
+  addToLibrary: (effect: PurchasedEffect) => Promise<void>;
+  /** Drop the entitlement locally. The server does not yet expose a
+   *  DELETE-entitlement endpoint, so this is client-only. */
   removeFromLibrary: (id: string) => void;
   /** Mark a previously-installed effect as uninstalled locally. */
   uninstallEffect: (id: string) => void;
@@ -79,106 +96,117 @@ interface MuseHubContextValue {
 
 const MuseHubContext = createContext<MuseHubContextValue | null>(null);
 
-const DEFAULT_BALANCE = 42.5;
+const GUEST_USER: UserProfile = { name: 'Guest', email: '' };
 
-// Per-account state. Each MuseHub account owns its own wallet, library and
-// Plugin Manager preferences — signing out of one and into another swaps
-// the entire surface.
-interface AccountSnapshot {
-  name: string;
-  avatarUrl?: string;
-  balance: number;
-  purchasedEffects: PurchasedEffect[];
+// Client-only state still gets persisted across reloads. Wallet, user, and
+// library state used to live here too — those now come from the server, so
+// only the local-install toggles remain.
+const STORAGE_KEY = 'musehub-local-v1';
+
+interface PersistedLocal {
   uninstalledIds: string[];
   disabledPluginIds: string[];
 }
 
-const EMPTY_ACCOUNT = (name: string): AccountSnapshot => ({
-  name,
-  balance: DEFAULT_BALANCE,
-  purchasedEffects: [],
-  uninstalledIds: [],
-  disabledPluginIds: [],
-});
-
-// localStorage key for the persisted session. Bump the suffix when the
-// shape changes so old saved state doesn't break the app.
-const STORAGE_KEY = 'musehub-session-v2';
-
-interface PersistedState {
-  accounts: Record<string, AccountSnapshot>;
-  /** Email of the currently signed-in account, or null when signed out. */
-  activeEmail: string | null;
-}
-
-function loadPersisted(): PersistedState {
-  const empty: PersistedState = { accounts: {}, activeEmail: null };
+function loadPersisted(): PersistedLocal {
+  const empty: PersistedLocal = { uninstalledIds: [], disabledPluginIds: [] };
   if (typeof window === 'undefined') return empty;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return empty;
-    const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    if (!parsed || typeof parsed !== 'object') return empty;
+    const parsed = JSON.parse(raw) as Partial<PersistedLocal>;
     return {
-      accounts: parsed.accounts && typeof parsed.accounts === 'object' ? parsed.accounts : {},
-      activeEmail: typeof parsed.activeEmail === 'string' ? parsed.activeEmail : null,
+      uninstalledIds: Array.isArray(parsed?.uninstalledIds)
+        ? parsed.uninstalledIds.filter((s): s is string => typeof s === 'string')
+        : [],
+      disabledPluginIds: Array.isArray(parsed?.disabledPluginIds)
+        ? parsed.disabledPluginIds.filter((s): s is string => typeof s === 'string')
+        : [],
     };
   } catch {
     return empty;
   }
 }
 
-export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Lazy-init from localStorage so a refresh keeps everyone signed in
-  // (or signed out), with their per-account libraries intact.
+function entitlementToEffect(e: MuseHubEntitlement): PurchasedEffect {
+  return { id: e.pluginId, name: e.pluginName, vendor: e.vendor };
+}
+
+export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const persisted = useMemo(loadPersisted, []);
 
-  const [accounts, setAccounts] = useState<Record<string, AccountSnapshot>>(
-    persisted.accounts,
+  // Server-backed state — populated by hydration after sign-in.
+  const [signedIn, setSignedIn] = useState<boolean>(() => hasToken());
+  const [user, setUser] = useState<UserProfile>(GUEST_USER);
+  const [balance, setBalanceState] = useState<number>(0);
+  const [purchasedEffects, setPurchasedEffects] = useState<PurchasedEffect[]>([]);
+
+  // Local-only state.
+  const [uninstalledIds, setUninstalledIds] = useState<Set<string>>(
+    () => new Set(persisted.uninstalledIds),
   );
-  const [activeEmail, setActiveEmail] = useState<string | null>(persisted.activeEmail);
-  const [authDialog, setAuthDialog] = useState<AuthDialogMode>('closed');
-  // installingIds is intentionally transient — fresh load = nothing in
-  // flight. It's also intentionally global, not per-account: install state
-  // only lives during the lifetime of a single signed-in session.
-  const [installingIds, setInstallingIds] = useState<Set<string>>(() => new Set());
-
-  const signedIn = activeEmail !== null;
-  const activeAccount: AccountSnapshot | null =
-    activeEmail !== null ? accounts[activeEmail] ?? null : null;
-
-  // Internal helper to mutate the active account's snapshot. No-ops when
-  // signed out — mutating actions should be gated upstream anyway, but
-  // this is the belt-and-braces guarantee.
-  const updateActiveAccount = useCallback(
-    (updater: (prev: AccountSnapshot) => AccountSnapshot) => {
-      setAccounts((prev) => {
-        if (!activeEmail) return prev;
-        const current = prev[activeEmail];
-        if (!current) return prev;
-        const next = updater(current);
-        if (next === current) return prev;
-        return { ...prev, [activeEmail]: next };
-      });
-    },
-    [activeEmail],
+  const [installingIds, setInstallingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [disabledPluginIds, setDisabledPluginIds] = useState<Set<string>>(
+    () => new Set(persisted.disabledPluginIds),
   );
 
-  // Derived published surface — empty/zero when signed out so consumers
-  // see nothing of the previously-signed-in user's data.
-  const balance = activeAccount?.balance ?? 0;
-  const user: UserProfile = activeAccount
-    ? { name: activeAccount.name, email: activeEmail!, avatarUrl: activeAccount.avatarUrl }
-    : { name: 'Guest', email: '' };
-  const purchasedEffects = activeAccount?.purchasedEffects ?? [];
-  const uninstalledIds = useMemo(
-    () => new Set(activeAccount?.uninstalledIds ?? []),
-    [activeAccount],
-  );
-  const disabledPluginIds = useMemo(
-    () => new Set(activeAccount?.disabledPluginIds ?? []),
-    [activeAccount],
-  );
+  // Hydrate from the server when we have a token. If any call returns 401
+  // after the client's transparent refresh, the client will throw and we
+  // fall back to signed-out. Other errors leave us in a stale-but-signed-in
+  // state, which the user can recover from by reloading.
+  useEffect(() => {
+    if (!hasToken()) {
+      setSignedIn(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [info, wallet, library] = await Promise.all([
+          getUserInfo(),
+          getWallet(),
+          getLibrary(),
+        ]);
+        if (cancelled) return;
+        setUser({
+          name: info.name,
+          email: info.email,
+          avatarUrl: info.avatarUrl,
+        });
+        setBalanceState(wallet.balanceCents / 100);
+        setPurchasedEffects(library.entitlements.map(entitlementToEffect));
+        setSignedIn(true);
+      } catch {
+        if (cancelled) return;
+        setSignedIn(false);
+        setUser(GUEST_USER);
+        setBalanceState(0);
+        setPurchasedEffects([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist local-only fields (install / disabled toggles).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const snapshot: PersistedLocal = {
+      uninstalledIds: Array.from(uninstalledIds),
+      disabledPluginIds: Array.from(disabledPluginIds),
+    };
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    } catch {
+      // Quota / serialisation failures are non-fatal — local toggles
+      // re-derive on the next session.
+    }
+  }, [uninstalledIds, disabledPluginIds]);
 
   // Helper to drive a simulated install: flag the id as installing, then
   // clear it after a short delay so callers can render a progress state.
@@ -199,141 +227,85 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, durationMs);
   }, []);
 
-  // Mirror persistent state to localStorage on every change.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const snapshot: PersistedState = { accounts, activeEmail };
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-    } catch {
-      // Quota or serialisation failure — swallow; library state is mock.
-    }
-  }, [accounts, activeEmail]);
-
-  // Mock validator shared by sign-in and create-account. Returns a
-  // user-facing error string if the input is rejected, or `null` if good.
-  // In a real backend this would be replaced with an API call.
-  const validateCreds = (email: string, password: string): string | null => {
-    if (!email.trim()) return 'Enter an email address.';
-    if (!email.includes('@') || !email.includes('.')) return 'Enter a valid email address.';
-    if (password.length < 6) return 'Password must be at least 6 characters.';
-    return null;
-  };
-
-  const signIn = useCallback((email: string, password: string) => {
-    const err = validateCreds(email, password);
-    if (err) return Promise.reject(new Error(err));
-    const normalised = email.trim().toLowerCase();
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        // If this email already has an account snapshot, just activate it.
-        // Otherwise initialise an empty account with a guessed display name.
-        setAccounts((prev) => {
-          if (prev[normalised]) return prev;
-          const guessedName = normalised.split('@')[0] || 'Member';
-          return { ...prev, [normalised]: EMPTY_ACCOUNT(guessedName) };
-        });
-        setActiveEmail(normalised);
-        resolve();
-      }, 1200);
-    });
+  const signIn = useCallback(async () => {
+    // Navigates away — returns a never-resolving Promise so callers can
+    // still `await` it without blocking the page transition.
+    await museHubLogin();
   }, []);
 
-  const createAccount = useCallback(
-    ({ email, password, displayName }: { email: string; password: string; displayName: string }) => {
-      const err = validateCreds(email, password);
-      if (err) return Promise.reject(new Error(err));
-      if (!displayName.trim()) return Promise.reject(new Error('Enter a display name.'));
-      const normalised = email.trim().toLowerCase();
-      const name = displayName.trim();
-      return new Promise<void>((resolve) => {
-        setTimeout(() => {
-          setAccounts((prev) => ({
-            ...prev,
-            // If the account exists already, refresh the display name but
-            // keep the existing library — this is mock auth, no real
-            // "account exists" rejection.
-            [normalised]: prev[normalised]
-              ? { ...prev[normalised], name }
-              : EMPTY_ACCOUNT(name),
-          }));
-          setActiveEmail(normalised);
-          resolve();
-        }, 1200);
-      });
-    },
-    [],
-  );
-
-  // Sign-out just deactivates the session — the account snapshot stays in
-  // localStorage so signing back in restores the library.
-  const signOut = useCallback(() => setActiveEmail(null), []);
-
-  const openAuthDialog = useCallback((mode: 'sign-in' | 'create-account' = 'sign-in') => {
-    setAuthDialog(mode);
+  const signOut = useCallback(async () => {
+    await museHubLogout();
+    setSignedIn(false);
+    setUser(GUEST_USER);
+    setBalanceState(0);
+    setPurchasedEffects([]);
   }, []);
-  const closeAuthDialog = useCallback(() => setAuthDialog('closed'), []);
 
   const spend = useCallback(
-    (amount: number) => {
-      updateActiveAccount((acc) => ({ ...acc, balance: Math.max(0, acc.balance - amount) }));
+    async (amountUsd: number, pluginId: string) => {
+      const previousBalance = balance;
+      // Optimistic update first so the wallet chip moves immediately.
+      setBalanceState((b) => Math.max(0, b - amountUsd));
+      try {
+        const wallet = await spendWallet(Math.round(amountUsd * 100), pluginId);
+        setBalanceState(wallet.balanceCents / 100);
+      } catch (err) {
+        // Server rejected — revert the optimistic update.
+        setBalanceState(previousBalance);
+        throw err;
+      }
     },
-    [updateActiveAccount],
-  );
-
-  const setBalance = useCallback(
-    (next: number) => {
-      updateActiveAccount((acc) => ({ ...acc, balance: Math.max(0, next) }));
-    },
-    [updateActiveAccount],
+    [balance],
   );
 
   const addToLibrary = useCallback(
-    (effect: PurchasedEffect) => {
-      updateActiveAccount((acc) =>
-        acc.purchasedEffects.some((e) => e.id === effect.id)
-          ? acc
-          : { ...acc, purchasedEffects: [...acc.purchasedEffects, effect] },
+    async (effect: PurchasedEffect) => {
+      // Server atomically debits the wallet and creates the entitlement.
+      // Local copy: append the effect (using the input shape we already
+      // have, since the server entitlement may not include UX details)
+      // and reconcile the balance to what the server reports.
+      const result = await buyPlugin(effect.id);
+      setBalanceState(result.balanceCents / 100);
+      setPurchasedEffects((prev) =>
+        prev.some((e) => e.id === effect.id) ? prev : [...prev, effect],
       );
-      // Kick off the simulated local install. Until it finishes, the effect
-      // is visible in the Owned page but absent from picker menus.
+      // Kick off the local install animation. The effect is visible in the
+      // Owned page but absent from picker menus until this completes.
       simulateInstall(effect.id);
     },
-    [updateActiveAccount, simulateInstall],
+    [simulateInstall],
   );
 
-  const removeFromLibrary = useCallback(
-    (id: string) => {
-      updateActiveAccount((acc) => ({
-        ...acc,
-        purchasedEffects: acc.purchasedEffects.filter((e) => e.id !== id),
-        uninstalledIds: acc.uninstalledIds.filter((i) => i !== id),
-      }));
-    },
-    [updateActiveAccount],
-  );
+  const removeFromLibrary = useCallback((id: string) => {
+    setPurchasedEffects((prev) => prev.filter((e) => e.id !== id));
+    setUninstalledIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
-  const uninstallEffect = useCallback(
-    (id: string) => {
-      updateActiveAccount((acc) =>
-        acc.uninstalledIds.includes(id)
-          ? acc
-          : { ...acc, uninstalledIds: [...acc.uninstalledIds, id] },
-      );
-    },
-    [updateActiveAccount],
-  );
+  const uninstallEffect = useCallback((id: string) => {
+    setUninstalledIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
 
   const reinstallEffect = useCallback(
     (id: string) => {
-      updateActiveAccount((acc) =>
-        acc.uninstalledIds.includes(id)
-          ? { ...acc, uninstalledIds: acc.uninstalledIds.filter((i) => i !== id) }
-          : acc,
-      );
+      setUninstalledIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       simulateInstall(id);
     },
-    [updateActiveAccount, simulateInstall],
+    [simulateInstall],
   );
 
   const installedEffects = useMemo(
@@ -344,34 +316,32 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [purchasedEffects, uninstalledIds, installingIds],
   );
 
-  const setPluginDisabled = useCallback(
-    (id: string, disabled: boolean) => {
-      updateActiveAccount((acc) => {
-        const has = acc.disabledPluginIds.includes(id);
-        if (disabled === has) return acc;
-        return {
-          ...acc,
-          disabledPluginIds: disabled
-            ? [...acc.disabledPluginIds, id]
-            : acc.disabledPluginIds.filter((d) => d !== id),
-        };
-      });
-    },
-    [updateActiveAccount],
-  );
+  const setPluginDisabled = useCallback((id: string, disabled: boolean) => {
+    setDisabledPluginIds((prev) => {
+      const has = prev.has(id);
+      if (disabled === has) return prev;
+      const next = new Set(prev);
+      if (disabled) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   const syncDisabledFromList = useCallback(
     (list: { id: string; enabled: boolean }[]) => {
-      updateActiveAccount((acc) => {
-        const nextIds = list.filter((p) => !p.enabled).map((p) => p.id);
-        const sameAsBefore =
-          nextIds.length === acc.disabledPluginIds.length &&
-          nextIds.every((id) => acc.disabledPluginIds.includes(id));
-        if (sameAsBefore) return acc;
-        return { ...acc, disabledPluginIds: nextIds };
+      setDisabledPluginIds((prev) => {
+        const next = new Set<string>();
+        for (const p of list) if (!p.enabled) next.add(p.id);
+        if (
+          next.size === prev.size &&
+          Array.from(next).every((id) => prev.has(id))
+        ) {
+          return prev;
+        }
+        return next;
       });
     },
-    [updateActiveAccount],
+    [],
   );
 
   const value = useMemo<MuseHubContextValue>(
@@ -380,13 +350,8 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ child
       signedIn,
       user,
       signIn,
-      createAccount,
       signOut,
       spend,
-      setBalance,
-      authDialog,
-      openAuthDialog,
-      closeAuthDialog,
       purchasedEffects,
       uninstalledIds,
       installingIds,
@@ -404,13 +369,8 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ child
       signedIn,
       user,
       signIn,
-      createAccount,
       signOut,
       spend,
-      setBalance,
-      authDialog,
-      openAuthDialog,
-      closeAuthDialog,
       purchasedEffects,
       uninstalledIds,
       installingIds,
@@ -426,13 +386,7 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   return (
-    <MuseHubContext.Provider value={value}>
-      {children}
-      {/* Globally mounted so it can be triggered from anywhere — the
-          marketplace modal's Sign-In prompt, the chrome wallet chip,
-          or any future surface that needs to gate on auth. */}
-      <AuthDialog />
-    </MuseHubContext.Provider>
+    <MuseHubContext.Provider value={value}>{children}</MuseHubContext.Provider>
   );
 };
 
@@ -449,8 +403,11 @@ export function useMuseHub(): MuseHubContextValue {
 export const useWalletBalance = (): number => useMuseHub().balance;
 export const useSignedIn = (): boolean => useMuseHub().signedIn;
 export const useUser = (): UserProfile => useMuseHub().user;
-export const usePurchasedEffects = (): PurchasedEffect[] => useMuseHub().purchasedEffects;
-export const useInstalledEffects = (): PurchasedEffect[] => useMuseHub().installedEffects;
+export const usePurchasedEffects = (): PurchasedEffect[] =>
+  useMuseHub().purchasedEffects;
+export const useInstalledEffects = (): PurchasedEffect[] =>
+  useMuseHub().installedEffects;
 export const useUninstalledIds = (): Set<string> => useMuseHub().uninstalledIds;
 export const useInstallingIds = (): Set<string> => useMuseHub().installingIds;
-export const useDisabledPlugins = (): Set<string> => useMuseHub().disabledPluginIds;
+export const useDisabledPlugins = (): Set<string> =>
+  useMuseHub().disabledPluginIds;

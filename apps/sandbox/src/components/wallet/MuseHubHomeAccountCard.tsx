@@ -9,7 +9,7 @@ import { Button, Icon } from '@dilsonspickles/components';
 import { useMuseHub } from '../../contexts/MuseHubContext';
 
 export const MuseHubHomeAccountCard: React.FC = () => {
-  const { signedIn, user, openAuthDialog, signOut } = useMuseHub();
+  const { signedIn, user, signIn, signOut } = useMuseHub();
 
   return (
     <div className="home-tab__accounts-section">
@@ -54,14 +54,14 @@ export const MuseHubHomeAccountCard: React.FC = () => {
                 <Button
                   variant="primary"
                   size="default"
-                  onClick={() => openAuthDialog('sign-in')}
+                  onClick={() => { void signIn(); }}
                 >
                   Sign in
                 </Button>
                 <Button
                   variant="primary"
                   size="default"
-                  onClick={() => openAuthDialog('create-account')}
+                  onClick={() => { void signIn(); }}
                 >
                   Create account
                 </Button>

@@ -13,7 +13,7 @@ export const MuseHubAccountSection: React.FC = () => {
     user,
     balance,
     purchasedEffects,
-    openAuthDialog,
+    signIn,
     signOut,
   } = useMuseHub();
 
@@ -89,14 +89,14 @@ export const MuseHubAccountSection: React.FC = () => {
             <button
               type="button"
               className="musehub-account__btn musehub-account__btn--primary"
-              onClick={() => openAuthDialog('sign-in')}
+              onClick={() => { void signIn(); }}
             >
               Sign in
             </button>
             <button
               type="button"
               className="musehub-account__btn musehub-account__btn--ghost"
-              onClick={() => openAuthDialog('create-account')}
+              onClick={() => { void signIn(); }}
             >
               Create account
             </button>

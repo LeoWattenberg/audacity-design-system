@@ -163,7 +163,6 @@ export function EditorLayout(props: EditorLayoutProps) {
     uninstalledIds,
     installingIds,
     disabledPluginIds,
-    spend,
     addToLibrary,
     uninstallEffect,
     reinstallEffect,
@@ -1829,9 +1828,9 @@ export function EditorLayout(props: EditorLayoutProps) {
       uninstalledIds={uninstalledIds}
       installingIds={installingIds}
       onPurchase={(effect) => {
-        // Mock entitlement: deduct the wallet and append the effect to the
-        // shared library so picker menus + Plugin Manager all update.
-        spend(effect.price ?? 0);
+        // Server atomically debits the wallet and creates the entitlement;
+        // the context's addToLibrary call reconciles balance + library off
+        // the response.
         addToLibrary({ id: effect.id, name: effect.name, vendor: effect.vendor });
       }}
       onUninstallEffect={(effect) => {

@@ -25,7 +25,7 @@ export const MuseWallet: React.FC<MuseWalletProps> = ({
 }) => {
   const balance = useWalletBalance();
   const signedIn = useSignedIn();
-  const { openAuthDialog } = useMuseHub();
+  const { signIn } = useMuseHub();
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -142,7 +142,7 @@ export const MuseWallet: React.FC<MuseWalletProps> = ({
         ref={chipRef}
         type="button"
         className="muse-wallet__signin"
-        onClick={() => openAuthDialog('sign-in')}
+        onClick={() => { void signIn(); }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
           <circle cx="7" cy="5" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
