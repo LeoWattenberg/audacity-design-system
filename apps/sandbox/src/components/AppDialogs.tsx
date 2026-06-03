@@ -7,6 +7,7 @@ import { generateWaveform } from '../utils/waveformGenerator';
 import { saveProject, getProject, getProjects } from '../utils/projectDatabase';
 import { availableCommands } from '../data/commands';
 import { useDialogs } from '../contexts/DialogContext';
+import { MuseHubAccountSection } from './wallet/MuseHubAccountSection';
 import { useContextMenus } from '../contexts/ContextMenuContext';
 
 export interface AppDialogsProps {
@@ -772,6 +773,7 @@ export function AppDialogs(props: AppDialogsProps) {
           dialogs.setIsPreferencesModalOpen(false);
           dialogs.setIsPluginManagerOpen(true);
         }}
+        accountsContent={<MuseHubAccountSection />}
       />
 
       {/* Plugin Browser Dialog */}

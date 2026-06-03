@@ -22,6 +22,7 @@ import { RecordingManager } from './utils/RecordingManager';
 import { createMenuDefinitions } from './data/menuDefinitions';
 import { createInitialPlugins } from './data/plugins';
 import { MuseHubProvider, useMuseHub, useInstalledEffects } from './contexts/MuseHubContext';
+import { MuseHubHomeAccountCard } from './components/wallet/MuseHubHomeAccountCard';
 import { useZoomControls } from './hooks/useZoomControls';
 import { usePlaybackControls } from './hooks/usePlaybackControls';
 import { useRecording } from './hooks/useRecording';
@@ -1141,6 +1142,7 @@ function CanvasDemoContent() {
               const updated = await getProjects();
               setIndexedDBProjects(updated);
             }}
+            extraAccountsSections={<MuseHubHomeAccountCard />}
           />
         </div>
       ) : (
