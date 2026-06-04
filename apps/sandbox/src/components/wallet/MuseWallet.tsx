@@ -15,13 +15,14 @@ const VIEWPORT_PAD = 12;
 export interface MuseWalletProps {
   /** ISO currency code — defaults to USD to match the rest of the marketplace. */
   currency?: 'USD' | 'GBP' | 'EUR';
-  /** Where "Top Up" should send the user. Defaults to the real musehub.com host. */
+  /** Where "Top Up" should send the user. Defaults to the local moose-hub
+   *  /wallet/top-up page (derived from VITE_MUSEHUB_BASE_URL). */
   topUpUrl?: string;
 }
 
 export const MuseWallet: React.FC<MuseWalletProps> = ({
   currency = 'USD',
-  topUpUrl = 'https://musehub.com/wallet/top-up',
+  topUpUrl = `${(import.meta.env.VITE_MUSEHUB_BASE_URL as string | undefined) ?? 'http://localhost:3000'}/wallet/top-up`,
 }) => {
   const balance = useWalletBalance();
   const signedIn = useSignedIn();

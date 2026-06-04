@@ -5,9 +5,14 @@ import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
 import { ApplicationHeader, ProjectToolbar, GhostButton, ToolbarGroup, TimeCodeFormat, ToastContainer, toast, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem, type StoredProject } from '@dilsonspickles/components';
 import {
   getProject as adieuGetProject,
+  saveProject as adieuSaveProject,
+  deleteProject as adieuDeleteProject,
   assetUrl as adieuAssetUrl,
+  ADIEU_BASE,
   type AdieuProjectSummary,
 } from './lib/adieu-client';
+import { decodeBufferMap, encodeBufferMap } from './lib/binary';
+import { SignInCancelledError } from './contexts/AdieuContext';
 import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
@@ -17,6 +22,7 @@ import { useSpectralSelection } from './contexts/SpectralSelectionContext';
 import { AudioEngineProvider, useAudioEngine } from './contexts/AudioEngineContext';
 import { AppContextMenus } from './components/AppContextMenus';
 import { AppDialogs } from './components/AppDialogs';
+import { InstallerWizardDialog } from './components/InstallerWizardDialog';
 import { TransportToolbar } from './components/TransportToolbar';
 import { EditorLayout } from './components/EditorLayout';
 const TokenReview = React.lazy(() =>
@@ -50,7 +56,33 @@ async function loadCloudProjectAsStored(
 ): Promise<StoredProject | null> {
   try {
     const project = await adieuGetProject(id);
+    // [save-debug] Confirm effects survive the round-trip.
+    const dbg = project.data as any;
+    console.log('[save-debug] loaded from adieu', {
+      projectId: id,
+      trackEffects: (dbg?.tracks ?? []).map((t: any, i: number) => ({
+        i,
+        name: t.name,
+        effects: (t.effects ?? []).map((e: any) => ({ id: e.id, name: e.name })),
+      })),
+      masterEffects: (dbg?.masterEffects ?? []).map((e: any) => ({ id: e.id, name: e.name })),
+    });
     const ts = Date.parse(project.updatedAt) || Date.now();
+    // Cloud payload encodes audioBuffers as base64 strings; decode to
+    // ArrayBuffers so downstream code (audioManager.importBuffersFromWav)
+    // sees the same shape it gets from IndexedDB.
+    const rawData = project.data as {
+      tracks?: unknown[];
+      masterEffects?: unknown[];
+      playheadPosition?: number;
+      audioBuffers?: Record<string, string | ArrayBuffer>;
+    } | null;
+    const data = rawData
+      ? {
+          ...rawData,
+          audioBuffers: decodeBufferMap(rawData.audioBuffers),
+        }
+      : null;
     return {
       id: project.id,
       title: project.title,
@@ -60,7 +92,7 @@ async function loadCloudProjectAsStored(
         ? adieuAssetUrl(project.thumbnailUrl)
         : undefined,
       isCloudProject: true,
-      data: project.data,
+      data,
     };
   } catch {
     return null;
@@ -105,7 +137,7 @@ function CanvasDemoContent() {
   // Dialog state (from context) — only destructure what App.tsx uses directly
   const {
     isSaveToCloudDialogOpen,
-    setIsShareDialogOpen, setIsCreateAccountOpen,
+    setIsShareDialogOpen,
     setIsSaveProjectModalOpen, setIsPreferencesModalOpen,
     setIsExportModalOpen, setIsLabelEditorOpen,
     setIsPluginManagerOpen, setIsMacroManagerOpen,
@@ -113,8 +145,6 @@ function CanvasDemoContent() {
     showMissingPlugins,
   } = useDialogs();
 
-  const [isSignedIn, setIsSignedIn] = React.useState(true);
-  const [authMode, setAuthMode] = React.useState<'signin' | 'create'>('create');
   const [isCloudProject, setIsCloudProject] = React.useState(false);
   const [cloudProjectName, setCloudProjectName] = React.useState('');
   const [projectName, setProjectName] = React.useState('');
@@ -134,11 +164,6 @@ function CanvasDemoContent() {
       return [];
     }
   });
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [emailError, setEmailError] = React.useState(false);
-  const [passwordError, setPasswordError] = React.useState(false);
-  const [validationErrorMessage, setValidationErrorMessage] = React.useState('');
   const [dontShowSyncAgain, setDontShowSyncAgain] = React.useState(false);
   const [dontShowSaveModalAgain, setDontShowSaveModalAgain] = React.useState(() => {
     const saved = localStorage.getItem('dontShowSaveModalAgain');
@@ -197,7 +222,15 @@ function CanvasDemoContent() {
   // Cloud projects from adieu (the separate cloud-storage service).
   // AdieuContext owns the fetch + visibility-refresh; we just adapt its
   // summaries into StoredProject shape for the HomeTab list.
-  const { signedIn: adieuSignedIn, cloudProjects: adieuCloudProjects } = useAdieu();
+  const {
+    signedIn: adieuSignedIn,
+    user: adieuUser,
+    cloudProjects: adieuCloudProjects,
+    cloudProjectsLoaded: adieuCloudProjectsLoaded,
+    refreshProjects: adieuRefreshProjects,
+    signIn: adieuSignIn,
+    signOut: adieuSignOut,
+  } = useAdieu();
   const cloudProjects = React.useMemo<StoredProject[]>(
     () => (adieuSignedIn ? adieuCloudProjects.map(cloudSummaryToStored) : []),
     [adieuSignedIn, adieuCloudProjects],
@@ -206,6 +239,53 @@ function CanvasDemoContent() {
     () => new Set(cloudProjects.map((p) => p.id)),
     [cloudProjects],
   );
+
+  // When adieu's project list refreshes, prune any IndexedDB rows that were
+  // cached copies of cloud projects but no longer exist on the server (e.g.
+  // the user deleted them from adieu's web UI). Without this, the merge
+  // re-surfaces them as local-only entries.
+  //
+  // Guarded on `cloudProjectsLoaded` so the initial empty cloudProjects
+  // (before hydrate() returns) isn't mistaken for "every cached cloud
+  // project was deleted." Without this guard, every page reload with a
+  // valid token would wipe cached cloud-project thumbnails before the
+  // network round-trip completes.
+  React.useEffect(() => {
+    if (!adieuSignedIn || !adieuCloudProjectsLoaded) return;
+    const liveCloudIds = new Set(adieuCloudProjects.map((p) => p.id));
+    const orphans = indexedDBProjects.filter(
+      (p) => p.isCloudProject && !p.isUploading && !liveCloudIds.has(p.id),
+    );
+    if (orphans.length === 0) return;
+    (async () => {
+      await Promise.allSettled(orphans.map((o) => deleteProject(o.id)));
+      const updated = await getProjects();
+      setIndexedDBProjects(updated);
+    })();
+  }, [adieuSignedIn, adieuCloudProjectsLoaded, adieuCloudProjects, indexedDBProjects]);
+
+  // When the user is signed out of audio.com, wipe any IndexedDB rows that
+  // were cached cloud copies. They could belong to a previous account on
+  // this browser — leaving them around would leak project titles +
+  // thumbnails to whoever signs in next. Local-only projects are untouched.
+  // Also nudges the editor out of a cloud project if one was open.
+  React.useEffect(() => {
+    if (adieuSignedIn) return;
+    const cloudCached = indexedDBProjects.filter((p) => p.isCloudProject);
+    if (cloudCached.length === 0) return;
+    (async () => {
+      await Promise.allSettled(cloudCached.map((p) => deleteProject(p.id)));
+      const updated = await getProjects();
+      setIndexedDBProjects(updated);
+      if (currentProjectId && cloudCached.some((p) => p.id === currentProjectId)) {
+        setCurrentProjectId(null);
+        setIsCloudProject(false);
+        dispatch({ type: 'SET_TRACKS', payload: [] });
+        dispatch({ type: 'SET_MASTER_EFFECTS', payload: [] });
+      }
+    })();
+  }, [adieuSignedIn, indexedDBProjects, currentProjectId, dispatch]);
+
   React.useEffect(() => {
     syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
   }, [allPlugins, syncDisabledFromList]);
@@ -499,6 +579,7 @@ function CanvasDemoContent() {
           data: {
             ...(existing.data ?? {}),
             tracks: state.tracks,
+            masterEffects: state.masterEffects,
             playheadPosition: state.playheadPosition,
             audioBuffers: existing.data?.audioBuffers,
           },
@@ -508,7 +589,7 @@ function CanvasDemoContent() {
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [currentProjectId, state.tracks, state.playheadPosition]);
+  }, [currentProjectId, state.tracks, state.masterEffects, state.playheadPosition]);
 
   // Live-update the project title in IndexedDB + local state as the user types in the Save to Cloud dialog
   React.useEffect(() => {
@@ -898,39 +979,110 @@ function CanvasDemoContent() {
     input.click();
   };
 
-  // Sync toast handler for cloud save
-  const handleSyncToast = () => {
-    const syncToastId = toast.syncing('Syncing to audio.com...');
-    const totalDuration = 3000;
-    const updateInterval = 100;
-    let progress = 0;
-    const startTime = Date.now();
-
-    const interval = setInterval(() => {
-      progress = Math.min(100, Math.floor((Date.now() - startTime) / totalDuration * 100));
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, totalDuration - elapsed);
-      const secondsRemaining = Math.ceil(remaining / 1000);
-      const timeRemainingText = secondsRemaining === 1
-        ? '1 second remaining'
-        : `${secondsRemaining} seconds remaining`;
-
-      toast.updateProgress(syncToastId, progress, timeRemainingText);
-
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          toast.dismiss(syncToastId);
-        }, 200);
+  // Ctrl+S on a cloud project: PUT the current in-memory project state
+  // back to adieu (audio buffers + tracks + master effects + thumbnail)
+  // and mirror the new snapshot to IndexedDB. Same flow as the initial
+  // Save-to-Cloud dialog, minus the naming UI — the title and id are
+  // already known.
+  const handleSaveCloudProject = async () => {
+    if (!currentProjectId) return;
+    if (!adieuSignedIn) {
+      try {
+        await adieuSignIn();
+      } catch (err) {
+        if (err instanceof SignInCancelledError) return;
+        toast.error(`Sign-in failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        return;
       }
-    }, updateInterval);
+    }
+
+    const syncToastId = toast.progress('Saving to audio.com…');
+    try {
+      const existing = await getProject(currentProjectId);
+      const title = existing?.title || 'Untitled project';
+
+      toast.updateProgress(syncToastId, 10, 'Capturing preview…');
+      let thumbnailDataUrl: string | undefined;
+      if (scrollContainerRef.current) {
+        try {
+          const domtoimage = (await import('dom-to-image-more')).default;
+          thumbnailDataUrl = await domtoimage.toJpeg(scrollContainerRef.current, {
+            quality: 0.8,
+            bgcolor: '#F5F5F7',
+            width: 448,
+            height: 252,
+            style: { transform: 'scale(1)', transformOrigin: 'top left' },
+          });
+        } catch {
+          // Thumbnail is optional.
+        }
+      }
+
+      toast.updateProgress(syncToastId, 30, 'Packaging audio…');
+      const audioBuffersRaw: Record<string, ArrayBuffer> = {};
+      const audioManager = audioManagerRef.current;
+      if (audioManager) {
+        const exported = audioManager.exportBuffersAsWav();
+        for (const [clipId, wav] of exported) audioBuffersRaw[clipId] = wav;
+      }
+      const audioBuffers = encodeBufferMap(audioBuffersRaw);
+
+      toast.updateProgress(syncToastId, 60, 'Uploading…');
+      // [save-debug] Confirm effects are present in the upload payload.
+      console.log('[save-debug] uploading to adieu', {
+        projectId: currentProjectId,
+        trackEffects: state.tracks.map((t: any, i: number) => ({
+          i,
+          name: t.name,
+          effects: (t.effects ?? []).map((e: any) => ({ id: e.id, name: e.name })),
+        })),
+        masterEffects: state.masterEffects.map((e: any) => ({ id: e.id, name: e.name })),
+      });
+      await adieuSaveProject(currentProjectId, {
+        title,
+        data: {
+          tracks: state.tracks,
+          masterEffects: state.masterEffects,
+          playheadPosition: state.playheadPosition,
+          audioBuffers,
+        },
+        thumbnailDataUrl,
+      });
+
+      toast.updateProgress(syncToastId, 85, 'Saving locally…');
+      await saveProject({
+        id: currentProjectId,
+        title,
+        dateCreated: existing?.dateCreated ?? Date.now(),
+        dateModified: Date.now(),
+        isCloudProject: true,
+        isUploading: false,
+        thumbnailUrl: thumbnailDataUrl ?? existing?.thumbnailUrl,
+        data: {
+          tracks: state.tracks,
+          masterEffects: state.masterEffects,
+          playheadPosition: state.playheadPosition,
+          audioBuffers: audioBuffersRaw,
+        },
+      });
+      const updated = await getProjects();
+      setIndexedDBProjects(updated);
+      await adieuRefreshProjects().catch(() => {});
+
+      toast.updateProgress(syncToastId, 100, 'Done');
+      setTimeout(() => toast.dismiss(syncToastId), 400);
+      toast.success('Saved to audio.com');
+    } catch (err) {
+      toast.dismiss(syncToastId);
+      toast.error(`Save failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const menuDefinitions = createMenuDefinitions({
     isCloudProject,
     dontShowSaveModalAgain,
     onImportAudio: handleImportAudio,
-    onSyncToast: handleSyncToast,
+    onSyncToast: handleSaveCloudProject,
     onShowSaveProjectModal: () => setIsSaveProjectModalOpen(true),
     onSaveToComputer: handleSaveToComputer,
     onOpenLabelEditor: () => setIsLabelEditorOpen(true),
@@ -1170,14 +1322,24 @@ function CanvasDemoContent() {
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           <HomeTab
             key={homeTabKey}
-            isSignedIn={isSignedIn}
-            userName="Username"
-            userAvatarUrl="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"
+            // The built-in account card on the home tab represents adieu
+            // (the audio.com-equivalent in our architecture). Reading state
+            // from AdieuContext means refresh shows what the server actually
+            // says — no auto-true reset on every mount.
+            isSignedIn={adieuSignedIn}
+            userName={adieuSignedIn ? adieuUser.name : 'Not signed in'}
+            userAvatarUrl={adieuUser.avatarUrl}
             projects={(() => {
-              const localList = indexedDBProjects.filter(p =>
-                p.isUploading || p.isCloudProject ||
-                (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
-              );
+              // Signed out: never surface cloud-flagged entries, even if
+              // their IndexedDB mirror still exists. They could belong to
+              // a previous account on this browser.
+              const localList = indexedDBProjects.filter(p => {
+                if (!adieuSignedIn && p.isCloudProject) return false;
+                return (
+                  p.isUploading || p.isCloudProject ||
+                  (p.data?.tracks && p.data.tracks.length > 0) || p.thumbnailUrl
+                );
+              });
               if (!adieuSignedIn) return localList;
               // Signed in to adieu: show cloud projects first, then any
               // local-only projects (those not also in the cloud list) so
@@ -1189,17 +1351,23 @@ function CanvasDemoContent() {
             audioFiles={cloudAudioFiles}
             onDeleteAudioFile={(id) => setCloudAudioFiles(prev => prev.filter(f => f.id !== id))}
             onCreateAccount={() => {
-              setAuthMode('create');
-              setIsCreateAccountOpen(true);
+              void adieuSignIn();
             }}
             onSignIn={() => {
-              // Sign in - show dialog
-              setAuthMode('signin');
-              setIsCreateAccountOpen(true);
+              void adieuSignIn();
             }}
             onSignOut={() => {
-              // Sign out
-              setIsSignedIn(false);
+              void adieuSignOut();
+            }}
+            onManageAccount={() => {
+              window.open(`${ADIEU_BASE}/account`, '_blank', 'noopener,noreferrer');
+            }}
+            onViewProjectOnCloud={(projectId) => {
+              window.open(
+                `${ADIEU_BASE}/projects/${encodeURIComponent(projectId)}`,
+                '_blank',
+                'noopener,noreferrer',
+              );
             }}
             onNewProject={async () => {
               await createNewProject();
@@ -1253,6 +1421,12 @@ function CanvasDemoContent() {
                   dispatch({ type: 'SET_TRACKS', payload: [] });
                 }
 
+                // Restore master effects
+                dispatch({
+                  type: 'SET_MASTER_EFFECTS',
+                  payload: Array.isArray(project.data?.masterEffects) ? project.data.masterEffects : [],
+                });
+
                 // Restore audio buffers from saved WAV data
                 if (project.data?.audioBuffers) {
                   const audioManager = audioManagerRef.current;
@@ -1273,9 +1447,20 @@ function CanvasDemoContent() {
             }}
             onOpenOther={handleOpenFromComputer}
             onDeleteProject={async (projectId) => {
-              await deleteProject(projectId);
+              // Delete from both layers so the project doesn't pop back in
+              // via the merge after the next refetch. catch() so a missing
+              // entry on either side doesn't abort the other delete.
+              const isCloud =
+                adieuSignedIn &&
+                (adieuCloudProjects.some((p) => p.id === projectId) ||
+                  indexedDBProjects.some((p) => p.id === projectId && p.isCloudProject));
+              await Promise.allSettled([
+                deleteProject(projectId),
+                isCloud ? adieuDeleteProject(projectId) : Promise.resolve(),
+              ]);
               const updated = await getProjects();
               setIndexedDBProjects(updated);
+              if (isCloud) await adieuRefreshProjects();
             }}
             extraAccountsSections={<MuseHubHomeAccountCard />}
           />
@@ -1391,20 +1576,6 @@ function CanvasDemoContent() {
         tracks={state.tracks}
         masterEffects={state.masterEffects}
         dispatch={dispatch}
-        isSignedIn={isSignedIn}
-        setIsSignedIn={setIsSignedIn}
-        authMode={authMode}
-        setAuthMode={setAuthMode}
-        email={email}
-        setEmail={setEmail}
-        password={password}
-        setPassword={setPassword}
-        emailError={emailError}
-        setEmailError={setEmailError}
-        passwordError={passwordError}
-        setPasswordError={setPasswordError}
-        validationErrorMessage={validationErrorMessage}
-        setValidationErrorMessage={setValidationErrorMessage}
         isCloudProject={isCloudProject}
         setIsCloudProject={setIsCloudProject}
         isCloudUploading={isCloudUploading}
@@ -1542,6 +1713,7 @@ function CanvasDemoContent() {
           </ContextMenu>
         </div>
       )}
+      <InstallerWizardDialog />
     </div>
   );
 }

@@ -41,7 +41,7 @@ export const MuseHubHomeAccountCard: React.FC = () => {
                 <Button
                   variant="primary"
                   size="default"
-                  onClick={() => window.open('https://musehub.com/account', '_blank')}
+                  onClick={() => window.open(`${(import.meta.env.VITE_MUSEHUB_BASE_URL as string | undefined) ?? 'http://localhost:3000'}/account`, '_blank')}
                 >
                   Manage account
                 </Button>

@@ -50,11 +50,11 @@ export const MuseHubAccountSection: React.FC = () => {
             </div>
             <a
               className="musehub-account__manage-link"
-              href="https://musehub.com/account"
+              href={`${(import.meta.env.VITE_MUSEHUB_BASE_URL as string | undefined) ?? 'http://localhost:3000'}/account`}
               target="_blank"
               rel="noreferrer"
             >
-              Manage on musehub.com →
+              Manage on MuseHub →
             </a>
           </div>
 

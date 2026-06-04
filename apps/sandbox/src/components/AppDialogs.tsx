@@ -1,5 +1,5 @@
 import React from 'react';
-import { WelcomeDialog, EffectDialog, EffectHeader, EffectDialogContextMenu, AmplifyEffect, ReverbEffect, Dialog, DialogFooter, SignInActionBar, LabeledInput, SocialSignInButton, LabeledFormDivider, TextLink, Button, LabeledCheckbox, ContextMenuItem, SaveProjectModal, PreferencesModal, PluginBrowserDialog, MacroManager, ExportModal, ExportSettings, LabelEditor, PluginManagerDialog, Plugin, VSTEffectOptionsDialog, AlertDialog, toast } from '@dilsonspickles/components';
+import { WelcomeDialog, EffectDialog, EffectHeader, EffectDialogContextMenu, AmplifyEffect, ReverbEffect, Dialog, DialogFooter, SignInActionBar, LabeledInput, Button, LabeledCheckbox, ContextMenuItem, SaveProjectModal, PreferencesModal, PluginBrowserDialog, MacroManager, ExportModal, ExportSettings, LabelEditor, PluginManagerDialog, Plugin, VSTEffectOptionsDialog, AlertDialog, toast } from '@dilsonspickles/components';
 import { EFFECT_REGISTRY } from '@audacity-ui/core';
 import { DebugPanel } from './DebugPanel';
 import { MissingPluginsModal } from './MissingPluginsModal';
@@ -8,10 +8,17 @@ import { availableCommands } from '../data/commands';
 import { useDialogs } from '../contexts/DialogContext';
 import { MuseHubAccountSection } from './wallet/MuseHubAccountSection';
 import { useContextMenus } from '../contexts/ContextMenuContext';
-import { useAdieu } from '../contexts/AdieuContext';
+import { useAdieu, SignInCancelledError } from '../contexts/AdieuContext';
 import {
   saveProject as adieuSaveProject,
+  ADIEU_BASE,
 } from '../lib/adieu-client';
+import { saveProject as saveProjectLocal, getProjects as getProjectsLocal } from '../utils/projectDatabase';
+import { encodeBufferMap } from '../lib/binary';
+
+const openAdieu = (path: string) => {
+  window.open(`${ADIEU_BASE}${path}`, '_blank', 'noopener,noreferrer');
+};
 
 export interface AppDialogsProps {
   // Welcome dialog
@@ -24,22 +31,6 @@ export interface AppDialogsProps {
   tracks: any[];
   masterEffects: any[];
   dispatch: React.Dispatch<any>;
-
-  // Auth state
-  isSignedIn: boolean;
-  setIsSignedIn: React.Dispatch<React.SetStateAction<boolean>>;
-  authMode: 'signin' | 'create';
-  setAuthMode: React.Dispatch<React.SetStateAction<'signin' | 'create'>>;
-  email: string;
-  setEmail: React.Dispatch<React.SetStateAction<string>>;
-  password: string;
-  setPassword: React.Dispatch<React.SetStateAction<string>>;
-  emailError: boolean;
-  setEmailError: React.Dispatch<React.SetStateAction<boolean>>;
-  passwordError: boolean;
-  setPasswordError: React.Dispatch<React.SetStateAction<boolean>>;
-  validationErrorMessage: string;
-  setValidationErrorMessage: React.Dispatch<React.SetStateAction<string>>;
 
   // Cloud state
   isCloudProject: boolean;
@@ -141,21 +132,26 @@ export function AppDialogs(props: AppDialogsProps) {
   const { effectDialog, setEffectDialog, effectContextMenu, setEffectContextMenu } = useContextMenus();
   const {
     signedIn: adieuSignedIn,
+    user: adieuUser,
     signIn: adieuSignIn,
+    signOut: adieuSignOut,
     refreshProjects: adieuRefreshProjects,
   } = useAdieu();
+
+  // B1 — "Save as a new project" checkbox state for the Save-to-Cloud dialog.
+  // Reset whenever the dialog closes so it doesn't leak across opens.
+  const [saveAsNew, setSaveAsNew] = React.useState(false);
+  React.useEffect(() => {
+    if (!dialogs.isSaveToCloudDialogOpen) setSaveAsNew(false);
+  }, [dialogs.isSaveToCloudDialogOpen]);
   const {
     welcomeDialog, audioEngine,
     tracks, masterEffects, dispatch,
-    isSignedIn, setIsSignedIn, authMode, setAuthMode,
-    email, setEmail, password, setPassword,
-    emailError, setEmailError, passwordError, setPasswordError,
-    validationErrorMessage, setValidationErrorMessage,
     isCloudProject, setIsCloudProject, isCloudUploading, setIsCloudUploading,
     cloudProjectName, setCloudProjectName, currentProjectId,
     dontShowSyncAgain, setDontShowSyncAgain,
     dontShowSaveModalAgain, setDontShowSaveModalAgain,
-    indexedDBProjects, setIndexedDBProjects: _setIndexedDBProjects,
+    indexedDBProjects, setIndexedDBProjects,
     projectName, setProjectName,
     cloudAudioFiles: _cloudAudioFiles, setCloudAudioFiles,
     showVendorUI, setShowVendorUI,
@@ -331,10 +327,12 @@ export function AppDialogs(props: AppDialogsProps) {
         width={400}
         minHeight={0}
         headerContent={
+          // Cloud sign-in state belongs to adieu. Show its actual user/state
+          // rather than the legacy hardcoded local flag.
           <SignInActionBar
-            signedIn={isSignedIn}
-            userName="Alex Dawson"
-            onSignOut={() => setIsSignedIn(false)}
+            signedIn={adieuSignedIn}
+            userName={adieuSignedIn ? (adieuUser.name || adieuUser.email) : 'Not signed in'}
+            onSignOut={() => { void adieuSignOut(); }}
           />
         }
         footer={
@@ -342,7 +340,15 @@ export function AppDialogs(props: AppDialogsProps) {
             primaryText="Done"
             secondaryText="Cancel"
             onPrimaryClick={() => {
-              if (isSignedIn) {
+              if (!projectName.trim()) {
+                toast.error('Please enter a track title');
+                return;
+              }
+              if (!adieuSignedIn) {
+                void adieuSignIn();
+                return;
+              }
+              {
                 const title = projectName.trim();
                 dialogs.setIsShareDialogOpen(false);
                 dialogs.setIsSyncingDialogOpen(true);
@@ -385,7 +391,7 @@ export function AppDialogs(props: AppDialogsProps) {
                       toast.success(
                         'Audio shared to cloud!',
                         'Your mixdown is available in Cloud audio files.',
-                        [{ label: 'View on audio.com', onClick: () => console.log('View on audio.com') }],
+                        [{ label: 'View on audio.com', onClick: () => openAdieu('/projects') }],
                         0
                       );
                     }, 200);
@@ -394,10 +400,6 @@ export function AppDialogs(props: AppDialogsProps) {
                     toast.error(`Mixdown failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
                   }
                 })();
-              } else if (projectName.trim()) {
-                dialogs.setIsCreateAccountOpen(true);
-              } else {
-                toast.error('Please enter a track title');
               }
             }}
             onSecondaryClick={() => {
@@ -426,74 +428,56 @@ export function AppDialogs(props: AppDialogsProps) {
         width={400}
         minHeight={0}
         headerContent={
+          // Cloud sign-in state belongs to adieu. Show its actual user/state
+          // rather than the legacy hardcoded local flag.
           <SignInActionBar
-            signedIn={isSignedIn}
-            userName="Alex Dawson"
-            onSignOut={() => setIsSignedIn(false)}
+            signedIn={adieuSignedIn}
+            userName={adieuSignedIn ? (adieuUser.name || adieuUser.email) : 'Not signed in'}
+            onSignOut={() => { void adieuSignOut(); }}
           />
         }
         footer={
           <DialogFooter
             primaryText="Done"
             secondaryText="Cancel"
-            onPrimaryClick={() => {
-              if (!cloudProjectName.trim()) {
+            onPrimaryClick={async () => {
+              const title = cloudProjectName.trim();
+              if (!title) {
                 toast.error('Please enter a project name');
                 return;
               }
+
+              // S1 — Sign-in is a Promise. If not signed in, pause the
+              // save flow, await the AuthDialog, then keep going. User
+              // cancels (Esc / X / backdrop) → SignInCancelledError → bail.
               if (!adieuSignedIn) {
-                // Cloud projects live in adieu (separate from moose-hub).
-                // The user signs in to adieu independently; they'll need to
-                // re-open this dialog and click Save again once they're in.
-                void adieuSignIn();
-                return;
+                try {
+                  await adieuSignIn();
+                } catch (err) {
+                  if (err instanceof SignInCancelledError) return;
+                  toast.error(
+                    `Sign-in failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                  );
+                  return;
+                }
               }
+
+              // F2 — Reuse the current project id (so re-saves overwrite the
+              // same cloud row); mint a fresh one if there's no current id,
+              // OR if the user opted into Save As (B1 — preserves the
+              // original cloud project, creates a new one with this title).
+              const projectId =
+                saveAsNew || !currentProjectId ? crypto.randomUUID() : currentProjectId;
 
               dialogs.setIsSaveToCloudDialogOpen(false);
               dialogs.setIsSyncingDialogOpen(true);
               setIsCloudUploading(true);
 
-              const uploadToastId = toast.progress('Uploading audio to cloud...');
-              const startTime = Date.now();
-              const MIN_DURATION_MS = 1500;
-              const PRETEND_TOTAL_MS = 10000;
+              const uploadToastId = toast.progress('Uploading to audio.com…');
 
-              let progress = 0;
-              const interval = setInterval(() => {
-                progress = Math.min(progress + 1, 99);
-                const elapsed = Date.now() - startTime;
-                const remaining = Math.max(0, PRETEND_TOTAL_MS - elapsed);
-                const secondsRemaining = Math.ceil(remaining / 1000);
-                const timeRemainingText = secondsRemaining === 1
-                  ? '1 second remaining'
-                  : `${secondsRemaining} seconds remaining`;
-                toast.updateProgress(uploadToastId, progress, timeRemainingText);
-              }, 100);
-
-              const finish = async () => {
-                clearInterval(interval);
-                toast.updateProgress(uploadToastId, 100, 'Done');
-                setTimeout(() => toast.dismiss(uploadToastId), 200);
-                setIsCloudUploading(false);
-                setIsCloudProject(true);
-                try {
-                  // Re-fetch the adieu project list so the HomeTab picks up
-                  // the new project on next render. AdieuContext owns the
-                  // state — passing it through here keeps the components
-                  // unaware that the source has changed.
-                  await adieuRefreshProjects();
-                } catch {
-                  // Refresh failure is non-fatal — the save itself succeeded.
-                }
-                toast.success(
-                  'Project saved to cloud!',
-                  'All saved changes will now sync to the cloud. You can access your project from any device.',
-                  [{ label: 'View on audio.com', onClick: () => console.log('View on audio.com') }],
-                  0,
-                );
-              };
-
-              (async () => {
+              try {
+                // 1. Capture thumbnail (best-effort).
+                toast.updateProgress(uploadToastId, 10, 'Capturing preview…');
                 let thumbnailDataUrl: string | undefined;
                 if (scrollContainerRef.current) {
                   try {
@@ -506,34 +490,83 @@ export function AppDialogs(props: AppDialogsProps) {
                       style: { transform: 'scale(1)', transformOrigin: 'top left' },
                     });
                   } catch {
-                    // Continue without thumbnail
+                    // Thumbnail is optional.
                   }
                 }
-                const projectData = { tracks, playheadPosition: 0 };
-                const title = cloudProjectName.trim() || 'Untitled Project';
 
-                try {
-                  await adieuSaveProject(currentProjectId ?? title, {
-                    title,
-                    data: projectData,
-                    thumbnailDataUrl,
-                  });
-                } catch (err) {
-                  clearInterval(interval);
-                  toast.dismiss(uploadToastId);
-                  setIsCloudUploading(false);
-                  toast.error(
-                    `Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                  );
-                  return;
+                // 2. F1 — Export per-clip WAV buffers and base64-encode for
+                // shipping as JSON. Without this, cloud-saved projects
+                // reload silent (track structure but no audio).
+                toast.updateProgress(uploadToastId, 30, 'Packaging audio…');
+                const audioBuffersRaw: Record<string, ArrayBuffer> = {};
+                const audioManager = audioManagerRef.current;
+                if (audioManager) {
+                  const exported = audioManager.exportBuffersAsWav();
+                  for (const [clipId, wav] of exported) {
+                    audioBuffersRaw[clipId] = wav;
+                  }
                 }
+                const audioBuffers = encodeBufferMap(audioBuffersRaw);
 
-                // Keep the progress bar on screen for at least MIN_DURATION_MS
-                // so the success feels considered rather than instantaneous.
-                const elapsed = Date.now() - startTime;
-                const delay = Math.max(0, MIN_DURATION_MS - elapsed);
-                setTimeout(() => { void finish(); }, delay);
-              })();
+                // 3. PUT to adieu.
+                toast.updateProgress(uploadToastId, 60, 'Uploading…');
+                await adieuSaveProject(projectId, {
+                  title,
+                  data: { tracks, masterEffects, playheadPosition: 0, audioBuffers },
+                  thumbnailDataUrl,
+                });
+
+                // 4. F3 — Mirror to IndexedDB so the home tab thumbnail +
+                // cache stay in sync. We keep ArrayBuffers locally; only the
+                // cloud transit needs base64.
+                toast.updateProgress(uploadToastId, 85, 'Saving locally…');
+                await saveProjectLocal({
+                  id: projectId,
+                  title,
+                  dateCreated: Date.now(),
+                  dateModified: Date.now(),
+                  isCloudProject: true,
+                  isUploading: false,
+                  thumbnailUrl: thumbnailDataUrl,
+                  data: {
+                    tracks,
+                    masterEffects,
+                    playheadPosition: 0,
+                    audioBuffers: audioBuffersRaw,
+                  },
+                });
+                const updated = await getProjectsLocal();
+                setIndexedDBProjects(updated);
+
+                // 5. Refresh adieu's cloud-projects state so the home tab
+                // picks up the new card.
+                await adieuRefreshProjects().catch(() => {});
+
+                toast.updateProgress(uploadToastId, 100, 'Done');
+                setTimeout(() => toast.dismiss(uploadToastId), 200);
+
+                // F4 — Close BOTH the syncing dialog and the upload state.
+                setIsCloudUploading(false);
+                setIsCloudProject(true);
+                dialogs.setIsSyncingDialogOpen(false);
+
+                toast.success(
+                  'Project saved to cloud!',
+                  'All saved changes will sync to audio.com. Access from any device.',
+                  [{
+                    label: 'View on audio.com',
+                    onClick: () => openAdieu(`/projects/${encodeURIComponent(projectId)}`),
+                  }],
+                  0,
+                );
+              } catch (err) {
+                toast.dismiss(uploadToastId);
+                setIsCloudUploading(false);
+                dialogs.setIsSyncingDialogOpen(false); // F4 — error path too
+                toast.error(
+                  `Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                );
+              }
             }}
             onSecondaryClick={() => {
               dialogs.setIsSaveToCloudDialogOpen(false);
@@ -543,148 +576,30 @@ export function AppDialogs(props: AppDialogsProps) {
           />
         }
       >
-        <LabeledInput
-          label="Project name"
-          value={cloudProjectName}
-          onChange={setCloudProjectName}
-          placeholder="Enter project name"
-          width="100%"
-        />
-      </Dialog>
-
-      {/* Create Account Dialog */}
-      <Dialog
-        isOpen={dialogs.isCreateAccountOpen}
-        title={authMode === 'signin' ? 'Sign in to cloud' : 'Create cloud account'}
-        os={os}
-        onClose={() => dialogs.setIsCreateAccountOpen(false)}
-        width={420}
-        footer={
-          <DialogFooter
-            primaryText="Continue"
-            secondaryText="Cancel"
-            onPrimaryClick={() => {
-              const hasEmailError = !email.trim();
-              const hasPasswordError = !password.trim();
-
-              setEmailError(hasEmailError);
-              setPasswordError(hasPasswordError);
-
-              if (hasEmailError || hasPasswordError) {
-                return;
-              }
-
-              if (email === 'admin' && password === 'password') {
-                dialogs.setIsCreateAccountOpen(false);
-                setIsSignedIn(true);
-                setEmail('');
-                setPassword('');
-                setEmailError(false);
-                setPasswordError(false);
-                setValidationErrorMessage('');
-              } else {
-                setEmailError(true);
-                setPasswordError(true);
-                setValidationErrorMessage('Incorrect email or password. Please try again');
-              }
-            }}
-            onSecondaryClick={() => {
-              dialogs.setIsCreateAccountOpen(false);
-              setEmail('');
-              setPassword('');
-              setEmailError(false);
-              setPasswordError(false);
-              setValidationErrorMessage('');
-            }}
-          />
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ fontSize: '12px', lineHeight: '16px', margin: 0 }}>
-            {authMode === 'signin'
-              ? 'Sign in to save to the cloud'
-              : 'Create a free cloud storage account to access your projects and audio from any device'
-            }
-          </p>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <SocialSignInButton
-              provider="google"
-              onClick={() => {
-                dialogs.setIsCreateAccountOpen(false);
-                setIsSignedIn(true);
-                setEmail('');
-                setPassword('');
-              }}
-            />
-            <SocialSignInButton
-              provider="facebook"
-              onClick={() => {
-                dialogs.setIsCreateAccountOpen(false);
-                setIsSignedIn(true);
-                setEmail('');
-                setPassword('');
-              }}
-            />
-          </div>
-
-          <LabeledFormDivider label="Or use email and password" />
-
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <LabeledInput
-            label="Email"
-            value={email}
-            onChange={(value) => {
-              setEmail(value);
-              setEmailError(false);
-              setValidationErrorMessage('');
-            }}
-            placeholder="Enter email"
+            label="Project name"
+            value={cloudProjectName}
+            onChange={setCloudProjectName}
+            placeholder="Enter project name"
             width="100%"
-            type="email"
-            error={emailError}
           />
-
-          <LabeledInput
-            label="Password"
-            value={password}
-            onChange={(value) => {
-              setPassword(value);
-              setPasswordError(false);
-              setValidationErrorMessage('');
-            }}
-            placeholder="Enter password"
-            width="100%"
-            type="password"
-            error={passwordError}
-          />
-
-          {authMode === 'signin' && (
-            <div style={{ marginTop: '-8px' }}>
-              <TextLink onClick={() => {}}>
-                Forgot your password?
-              </TextLink>
-            </div>
+          {/* B1 — Save As. Only meaningful if the current session is already
+              backed by a cloud project; otherwise every save is necessarily
+              "new" and the checkbox would be confusing. */}
+          {isCloudProject && currentProjectId && (
+            <LabeledCheckbox
+              label="Save as a new project (keeps the original)"
+              checked={saveAsNew}
+              onChange={setSaveAsNew}
+            />
           )}
-
-          {validationErrorMessage && (
-            <div style={{
-              fontSize: '12px',
-              lineHeight: 'normal',
-              color: '#c41e3a',
-              marginTop: '-8px'
-            }}>
-              {validationErrorMessage}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '4px', fontSize: '12px', lineHeight: 'normal' }}>
-            <span>{authMode === 'signin' ? 'Need an account?' : 'Already have an account?'}</span>
-            <TextLink onClick={() => setAuthMode(authMode === 'signin' ? 'create' : 'signin')}>
-              {authMode === 'signin' ? 'Create cloud account' : 'Sign in here'}
-            </TextLink>
-          </div>
         </div>
       </Dialog>
+
+      {/* Legacy CreateAccount dialog removed — sign-in flows through
+          AdieuContext's AuthDialog (rose) and MuseHubContext's AuthDialog
+          (violet). */}
 
       {/* Syncing Your Project Dialog */}
       <Dialog
@@ -1170,8 +1085,11 @@ export function AppDialogs(props: AppDialogsProps) {
           dialogs.setIsDebugPanelOpen(false);
           setActiveMenuItem('project');
         }}
-        isSignedIn={isSignedIn}
-        onSignedInChange={setIsSignedIn}
+        isSignedIn={adieuSignedIn}
+        onSignedInChange={(next: boolean) => {
+          if (next) void adieuSignIn();
+          else void adieuSignOut();
+        }}
         isCloudProject={isCloudProject}
         onCloudProjectChange={setIsCloudProject}
         isCloudUploading={isCloudUploading}

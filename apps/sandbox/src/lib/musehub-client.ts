@@ -41,9 +41,10 @@ export interface MuseHubWallet {
 
 export interface MuseHubEntitlement {
   pluginId: string;
-  pluginName: string;
+  name: string;
   vendor: string;
-  acquiredAt: string;
+  category?: string;
+  purchasedAt: string;
 }
 
 export interface MuseHubLibrary {
@@ -125,18 +126,105 @@ async function sha256Base64Url(input: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
-// ---- OAuth flow -----------------------------------------------------------
+// ---- First-party direct auth ---------------------------------------------
+
+interface DirectTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  user: { id: string; email: string; name: string };
+}
+
+interface DirectAuthError extends Error {
+  code: string;
+}
+
+function makeAuthError(code: string, message?: string): DirectAuthError {
+  const e = new Error(message ?? code) as DirectAuthError;
+  e.code = code;
+  return e;
+}
+
+async function directAuth(body: Record<string, string>): Promise<DirectTokenResponse> {
+  const res = await fetch(`${MUSEHUB_BASE_URL}/api/auth/direct-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // `include` so the browser stores moose-hub's Set-Cookie response under
+    // the moose-hub origin. When the user later opens moose-hub.com directly,
+    // that cookie is sent and they land already-signed-in ("View on web"
+    // pattern).
+    credentials: 'include',
+    body: JSON.stringify({ client_id: CLIENT_ID, ...body }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw makeAuthError(
+      (data as { error?: string }).error ?? 'auth_failed',
+      (data as { error_description?: string }).error_description,
+    );
+  }
+  const tokens = data as DirectTokenResponse;
+  writeTokens({
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: Date.now() + tokens.expires_in * 1000,
+  });
+  return tokens;
+}
+
+/** Sign in with email + password as a first-party client. Writes tokens on success. */
+export function directLogin(email: string, password: string): Promise<DirectTokenResponse> {
+  return directAuth({ mode: 'signin', email, password });
+}
+
+/** Create an account + sign in in a single round-trip. Writes tokens on success. */
+export function directSignup(
+  email: string,
+  password: string,
+  name: string,
+): Promise<DirectTokenResponse> {
+  return directAuth({ mode: 'signup', email, password, name });
+}
+
+// ---- OAuth (authorization code + PKCE) ------------------------------------
+// Retained for non-first-party clients that need the full OAuth dance.
+
+const AUTH_MESSAGE_TYPE = 'moosehub-auth';
+
+export class SignInCancelledError extends Error {
+  constructor() {
+    super('sign_in_cancelled');
+    this.name = 'SignInCancelledError';
+  }
+}
+
+export interface AuthorizeFlow {
+  /** URL to load (in an iframe or new window) to drive the OAuth dance. */
+  authorizeUrl: string;
+  /**
+   * Call with the code+state received from the callback page (via postMessage
+   * or otherwise). Resolves once tokens are exchanged and written to local
+   * storage. Throws on PKCE mismatch or token-exchange failure.
+   */
+  complete: (code: string, returnedState: string) => Promise<void>;
+}
 
 /**
- * Kick off PKCE login. Generates verifier + challenge + state, stashes them in
- * sessionStorage, and navigates the browser to moose-hub's /authorize. Does
- * not return — the page navigates away.
+ * Begin a PKCE-protected authorization-code flow. The caller is responsible
+ * for presenting `authorizeUrl` to the user (typically by loading it in an
+ * iframe inside an in-app modal) and for relaying the code+state from the
+ * callback page back to `complete()`.
+ *
+ * The PKCE verifier never leaves this window's memory — `complete()` closes
+ * over it, so iframes/popups can't see it even if they share sessionStorage.
  */
-export async function login(): Promise<void> {
+export async function startAuthorize(): Promise<AuthorizeFlow> {
   const verifier = randomBase64Url(32);
   const state = randomBase64Url(16);
   const challenge = await sha256Base64Url(verifier);
 
+  // Also stash in sessionStorage so a top-level callback page (the bookmark
+  // fallback) can recover them on reload.
   window.sessionStorage.setItem(OAUTH_VERIFIER_KEY, verifier);
   window.sessionStorage.setItem(OAUTH_STATE_KEY, state);
 
@@ -150,13 +238,64 @@ export async function login(): Promise<void> {
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
 
-  window.location.assign(url.toString());
+  return {
+    authorizeUrl: url.toString(),
+    complete: async (code, returnedState) => {
+      if (returnedState !== state) throw new Error('OAuth state mismatch');
+      window.sessionStorage.removeItem(OAUTH_VERIFIER_KEY);
+      window.sessionStorage.removeItem(OAUTH_STATE_KEY);
+
+      const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: CLIENT_ID,
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+      });
+      const res = await fetch(`${MUSEHUB_BASE_URL}/api/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Token exchange failed (${res.status}): ${text}`);
+      }
+      const tokens = (await res.json()) as {
+        access_token: string;
+        refresh_token: string;
+        expires_in: number;
+      };
+      writeTokens({
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      });
+    },
+  };
 }
 
+/** Message shape posted from the callback page to its embedder. */
+export interface AuthCallbackMessage {
+  type: typeof AUTH_MESSAGE_TYPE;
+  code?: string;
+  state?: string;
+  error?: string;
+}
+
+export const AUTH_CALLBACK_MESSAGE_TYPE = AUTH_MESSAGE_TYPE;
+
 /**
- * Called from the /oauth/callback page on demo load. Validates state, exchanges
- * the code for tokens via /api/oauth/token, stores them, and redirects to "/"
- * with a clean URL. Throws if the OAuth response is malformed or rejected.
+ * Called from the /oauth/callback page when moose-hub redirects back.
+ *
+ * Detects whether we're inside an iframe (`window.parent !== window`) or a
+ * popup (`window.opener`). In either case, postMessage the code+state back
+ * to the embedder — the embedder holds the PKCE verifier and does the token
+ * exchange.
+ *
+ * If neither parent nor opener is present (top-level navigation, e.g. the
+ * user bookmarked the callback URL), we fall back to exchanging here using
+ * the verifier from sessionStorage, then navigate to "/".
  */
 export async function handleCallback(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
@@ -164,24 +303,35 @@ export async function handleCallback(): Promise<void> {
   const returnedState = params.get('state');
   const error = params.get('error');
 
-  if (error) {
-    throw new Error(`OAuth error: ${error}`);
+  const embedder: Window | null =
+    window.parent && window.parent !== window
+      ? window.parent
+      : window.opener && window.opener !== window
+        ? window.opener
+        : null;
+
+  if (embedder) {
+    const payload: AuthCallbackMessage = error
+      ? { type: AUTH_MESSAGE_TYPE, error }
+      : { type: AUTH_MESSAGE_TYPE, code: code ?? undefined, state: returnedState ?? undefined };
+    embedder.postMessage(payload, window.location.origin);
+    // For popup mode only — iframes ignore close().
+    try { window.close(); } catch { /* swallow */ }
+    return;
   }
-  if (!code || !returnedState) {
-    throw new Error('Missing code or state in callback URL');
-  }
+
+  // Top-level fallback: do the exchange here using the verifier we stashed
+  // before navigating. This handles bookmarked callback URLs / reloads.
+  if (error) throw new Error(`OAuth error: ${error}`);
+  if (!code || !returnedState) throw new Error('Missing code or state in callback URL');
 
   const expectedState = window.sessionStorage.getItem(OAUTH_STATE_KEY);
   const verifier = window.sessionStorage.getItem(OAUTH_VERIFIER_KEY);
   window.sessionStorage.removeItem(OAUTH_STATE_KEY);
   window.sessionStorage.removeItem(OAUTH_VERIFIER_KEY);
 
-  if (!expectedState || returnedState !== expectedState) {
-    throw new Error('OAuth state mismatch');
-  }
-  if (!verifier) {
-    throw new Error('Missing PKCE verifier');
-  }
+  if (!expectedState || returnedState !== expectedState) throw new Error('OAuth state mismatch');
+  if (!verifier) throw new Error('Missing PKCE verifier');
 
   const redirectUri = `${window.location.origin}/oauth/callback`;
   const body = new URLSearchParams({
@@ -191,7 +341,6 @@ export async function handleCallback(): Promise<void> {
     redirect_uri: redirectUri,
     code_verifier: verifier,
   });
-
   const res = await fetch(`${MUSEHUB_BASE_URL}/api/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -206,19 +355,19 @@ export async function handleCallback(): Promise<void> {
     refresh_token: string;
     expires_in: number;
   };
-
   writeTokens({
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: Date.now() + tokens.expires_in * 1000,
   });
-
   window.history.replaceState({}, '', '/');
 }
 
 /**
- * Best-effort token revocation, then clear local state. Safe to call even if
- * no tokens are stored.
+ * Per-surface sign-out: revokes this client's refresh token on the server and
+ * clears local state. Does NOT touch the moose-hub.com browser session
+ * cookie — that's an independent session, matching how desktop apps and
+ * their web counterparts work (Dropbox, Spotify, Slack, etc.).
  */
 export async function logout(): Promise<void> {
   const tokens = readTokens();
@@ -330,7 +479,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 // ---- Typed API ------------------------------------------------------------
 
 export function getUserInfo(): Promise<MuseHubUserInfo> {
-  return getJson<MuseHubUserInfo>('/api/me');
+  return getJson<MuseHubUserInfo>('/api/oauth/userinfo');
 }
 
 export function getWallet(): Promise<MuseHubWallet> {
@@ -354,7 +503,7 @@ export function getLibrary(): Promise<MuseHubLibrary> {
 export function buyPlugin(
   pluginId: string,
 ): Promise<{ balanceCents: number; entitlement: MuseHubEntitlement }> {
-  return postJson('/api/me/library/buy', { pluginId });
+  return postJson('/api/me/library', { pluginId });
 }
 
 export function getPlugins(): Promise<{ plugins: MuseHubPlugin[] }> {

@@ -1,22 +1,20 @@
-// adieu sign-in / create-account dialog. Mirror of MuseHub's AuthDialog —
-// same form layout, same first-party password-grant flow — but pointed at
-// the adieu backend (a separate service from moose-hub) and visually tinted
-// rose-500 so the user can tell the two sign-in surfaces apart at a glance.
+// MuseHub sign-in / create-account dialog. Opened via
+// MuseHubContext.openAuthDialog(); both modes share the same panel and the
+// user can toggle between them.
 //
-// Opened via AdieuContext.openAuthDialog(); submit hits adieu's
-// /api/auth/direct-token, which writes tokens to localStorage under
-// `adieu-tokens-v1` (independent from the `musehub-tokens-v1` key). The
+// Submit hits moose-hub's first-party /api/auth/direct-token endpoint via
+// directLogin / directSignup, which writes tokens to localStorage; the
 // dialog then calls hydrate() so the surrounding context picks up the new
-// user + project list.
+// user / wallet / library.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAdieu } from '../../contexts/AdieuContext';
-import { directLogin, directSignup } from '../../lib/adieu-client';
-import './AdieuAuthDialog.css';
+import { useMuseHub } from '../../contexts/MuseHubContext';
+import { directLogin, directSignup } from '../../lib/musehub-client';
+import './AuthDialog.css';
 
-export const AdieuAuthDialog: React.FC = () => {
-  const { authDialog, openAuthDialog, closeAuthDialog, hydrate, completePendingSignIn } = useAdieu();
+export const AuthDialog: React.FC = () => {
+  const { authDialog, openAuthDialog, closeAuthDialog, hydrate } = useMuseHub();
   const open = authDialog !== 'closed';
   const mode = authDialog === 'create-account' ? 'create-account' : 'sign-in';
 
@@ -27,6 +25,7 @@ export const AdieuAuthDialog: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
+  // Reset form whenever the dialog opens or the mode changes.
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -34,6 +33,7 @@ export const AdieuAuthDialog: React.FC = () => {
     setTimeout(() => firstInputRef.current?.focus(), 50);
   }, [open, mode]);
 
+  // Escape to dismiss when nothing's in flight.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -60,9 +60,6 @@ export const AdieuAuthDialog: React.FC = () => {
         await directSignup(email.trim(), password, displayName.trim());
       }
       await hydrate();
-      // Resolve any awaiting signIn() promise BEFORE closing the dialog,
-      // so closeAuthDialog doesn't see a still-pending resolver and reject it.
-      completePendingSignIn();
       closeAuthDialog();
       setEmail('');
       setPassword('');
@@ -80,9 +77,7 @@ export const AdieuAuthDialog: React.FC = () => {
     }
   };
 
-  // User-facing branding is audio.com — the demo's external positioning.
-  // The "adieu" name is reserved for the internal codename / repo.
-  const title = mode === 'sign-in' ? 'Sign in to audio.com' : 'Create your audio.com account';
+  const title = mode === 'sign-in' ? 'Sign in to MuseHub' : 'Create a MuseHub account';
   const submitLabel =
     submitting
       ? mode === 'sign-in'
@@ -94,18 +89,18 @@ export const AdieuAuthDialog: React.FC = () => {
 
   const content = (
     <div
-      className="adieu-auth-dialog__backdrop"
+      className="auth-dialog__backdrop"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !submitting) closeAuthDialog();
       }}
     >
-      <div className="adieu-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="adieu-auth-dialog-title">
-        <header className="adieu-auth-dialog__header">
-          <h2 id="adieu-auth-dialog-title">{title}</h2>
+      <div className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
+        <header className="auth-dialog__header">
+          <h2 id="auth-dialog-title">{title}</h2>
           <button
             type="button"
-            className="adieu-auth-dialog__close"
+            className="auth-dialog__close"
             onClick={closeAuthDialog}
             disabled={submitting}
             aria-label="Close"
@@ -116,15 +111,15 @@ export const AdieuAuthDialog: React.FC = () => {
           </button>
         </header>
 
-        <p className="adieu-auth-dialog__subtitle">
+        <p className="auth-dialog__subtitle">
           {mode === 'sign-in'
-            ? 'Sign in to save and access your audio in the cloud.'
-            : 'Create a free account to back up your projects.'}
+            ? 'Sign in to your MuseHub account to buy and manage effects.'
+            : 'Create a free MuseHub account — needed to buy effects from the marketplace.'}
         </p>
 
-        <form className="adieu-auth-dialog__form" onSubmit={handleSubmit} noValidate>
+        <form className="auth-dialog__form" onSubmit={handleSubmit} noValidate>
           {mode === 'create-account' && (
-            <label className="adieu-auth-dialog__field">
+            <label className="auth-dialog__field">
               <span>Display name</span>
               <input
                 ref={firstInputRef}
@@ -138,7 +133,7 @@ export const AdieuAuthDialog: React.FC = () => {
             </label>
           )}
 
-          <label className="adieu-auth-dialog__field">
+          <label className="auth-dialog__field">
             <span>Email</span>
             <input
               ref={mode === 'sign-in' ? firstInputRef : undefined}
@@ -151,7 +146,7 @@ export const AdieuAuthDialog: React.FC = () => {
             />
           </label>
 
-          <label className="adieu-auth-dialog__field">
+          <label className="auth-dialog__field">
             <span>Password</span>
             <input
               type="password"
@@ -162,28 +157,28 @@ export const AdieuAuthDialog: React.FC = () => {
               required
               minLength={mode === 'create-account' ? 8 : undefined}
             />
-            <span className="adieu-auth-dialog__hint">
+            <span className="auth-dialog__hint">
               {mode === 'create-account' ? 'At least 8 characters.' : null}
             </span>
           </label>
 
           {error && (
-            <p className="adieu-auth-dialog__error" role="alert">
+            <p className="auth-dialog__error" role="alert">
               {error}
             </p>
           )}
 
-          <button type="submit" className="adieu-auth-dialog__cta" disabled={submitting}>
-            {submitting && <span className="adieu-auth-dialog__spinner" aria-hidden="true" />}
+          <button type="submit" className="auth-dialog__cta" disabled={submitting}>
+            {submitting && <span className="auth-dialog__spinner" aria-hidden="true" />}
             <span>{submitLabel}</span>
           </button>
 
           {mode === 'sign-in' ? (
-            <p className="adieu-auth-dialog__switch">
+            <p className="auth-dialog__switch">
               Don't have an account?{' '}
               <button
                 type="button"
-                className="adieu-auth-dialog__link"
+                className="auth-dialog__link"
                 onClick={() => openAuthDialog('create-account')}
                 disabled={submitting}
               >
@@ -191,16 +186,24 @@ export const AdieuAuthDialog: React.FC = () => {
               </button>
             </p>
           ) : (
-            <p className="adieu-auth-dialog__switch">
+            <p className="auth-dialog__switch">
               Already have an account?{' '}
               <button
                 type="button"
-                className="adieu-auth-dialog__link"
+                className="auth-dialog__link"
                 onClick={() => openAuthDialog('sign-in')}
                 disabled={submitting}
               >
                 Sign in
               </button>
+            </p>
+          )}
+
+          {mode === 'sign-in' && (
+            <p className="auth-dialog__forgot">
+              <a href="https://musehub.com/forgot-password" target="_blank" rel="noreferrer">
+                Forgot password?
+              </a>
             </p>
           )}
         </form>
@@ -211,4 +214,4 @@ export const AdieuAuthDialog: React.FC = () => {
   return createPortal(content, document.body);
 };
 
-export default AdieuAuthDialog;
+export default AuthDialog;

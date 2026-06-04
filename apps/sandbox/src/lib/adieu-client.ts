@@ -107,6 +107,10 @@ async function directAuth(body: Record<string, string>): Promise<DirectTokenResp
   const res = await fetch(`${ADIEU_BASE_URL}/api/auth/direct-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    // `include` so the browser stores adieu's Set-Cookie response under the
+    // adieu origin. When the user later opens adieu.com directly, that cookie
+    // is sent and they land already-signed-in ("View on web" pattern).
+    credentials: 'include',
     body: JSON.stringify({ client_id: CLIENT_ID, ...body }),
   });
   const data = await res.json().catch(() => ({}));
@@ -140,8 +144,10 @@ export function directSignup(
 }
 
 /**
- * Best-effort token revocation, then clear local state. Safe to call even if
- * no tokens are stored.
+ * Per-surface sign-out: revokes this client's refresh token on the server and
+ * clears local state. Does NOT touch the adieu.com browser session cookie —
+ * that's an independent session, matching how desktop apps and their web
+ * counterparts work (Dropbox, Spotify, Slack, etc.).
  */
 export async function logout(): Promise<void> {
   const tokens = readTokens();

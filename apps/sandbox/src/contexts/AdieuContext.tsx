@@ -14,6 +14,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -31,12 +32,30 @@ export interface UserProfile {
   avatarUrl?: string;
 }
 
+export class SignInCancelledError extends Error {
+  constructor() {
+    super('adieu_sign_in_cancelled');
+    this.name = 'SignInCancelledError';
+  }
+}
+
 interface AdieuContextValue {
   signedIn: boolean;
   user: UserProfile;
   /** Project summaries returned by `listProjects()` on the most recent hydrate. */
   cloudProjects: AdieuProjectSummary[];
-  /** Convenience: opens the adieu AuthDialog in sign-in mode. */
+  /** True once `listProjects()` has returned at least once since sign-in.
+   *  Consumers that prune local caches based on cloud-list contents (e.g.
+   *  orphan cleanup) MUST gate on this — otherwise the initial empty state
+   *  would be mistaken for "every cached cloud project was deleted." */
+  cloudProjectsLoaded: boolean;
+  /**
+   * Open the adieu AuthDialog (no-op if already signed in). Returns a
+   * Promise that resolves once tokens are written and state is hydrated,
+   * or rejects with SignInCancelledError if the user closes the dialog
+   * without completing. Callers can `await` this to chain a follow-up
+   * action (e.g. a Save-to-Cloud flow that needs auth first).
+   */
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   /** Re-fetch userinfo + projects from adieu. Called on mount + tab focus. */
@@ -49,6 +68,9 @@ interface AdieuContextValue {
   openAuthDialog: (mode: 'sign-in' | 'create-account') => void;
   /** Close the AdieuAuthDialog. No-op if already closed. */
   closeAuthDialog: () => void;
+  /** Called by the AuthDialog after a successful sign-in to resolve any
+   *  pending `signIn()` promise. Not used by other consumers. */
+  completePendingSignIn: () => void;
 }
 
 const AdieuContext = createContext<AdieuContextValue | null>(null);
@@ -62,6 +84,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
   const [signedIn, setSignedIn] = useState<boolean>(() => hasToken());
   const [user, setUser] = useState<UserProfile>(GUEST_USER);
   const [cloudProjects, setCloudProjects] = useState<AdieuProjectSummary[]>([]);
+  const [cloudProjectsLoaded, setCloudProjectsLoaded] = useState<boolean>(false);
 
   // Hydrate user + project list. Mirrors MuseHubContext.hydrate: only auth
   // errors flip us to signed-out; transient network errors leave the last-
@@ -72,6 +95,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       setSignedIn(false);
       setUser(GUEST_USER);
       setCloudProjects([]);
+      setCloudProjectsLoaded(false);
       return;
     }
     try {
@@ -85,14 +109,16 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
         avatarUrl: info.avatarUrl,
       });
       setCloudProjects(projects.projects);
+      setCloudProjectsLoaded(true);
       setSignedIn(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : '';
-      const isAuthError = /session expired|not signed in/i.test(message);
+      const isAuthError = /session expired|not signed in|invalid_token/i.test(message);
       if (isAuthError) {
         setSignedIn(false);
         setUser(GUEST_USER);
         setCloudProjects([]);
+        setCloudProjectsLoaded(false);
       }
       // Otherwise: keep last-known state and try again on the next focus.
     }
@@ -103,6 +129,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const projects = await listProjects();
       setCloudProjects(projects.projects);
+      setCloudProjectsLoaded(true);
     } catch {
       // Non-fatal: caller still sees their last-known list.
     }
@@ -135,12 +162,46 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [hydrate]);
 
   const [authDialog, setAuthDialog] = useState<'closed' | 'sign-in' | 'create-account'>('closed');
+
+  // Pending signIn() promise resolver. Set when signIn() is called; cleared
+  // either when the dialog reports a successful sign-in (resolve) or when
+  // it closes without one (reject with SignInCancelledError).
+  const pendingSignInRef = useRef<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+  } | null>(null);
+
   const openAuthDialog = useCallback((mode: 'sign-in' | 'create-account') => {
     setAuthDialog(mode);
   }, []);
-  const closeAuthDialog = useCallback(() => setAuthDialog('closed'), []);
-  const signIn = useCallback(async () => {
-    setAuthDialog('sign-in');
+  const closeAuthDialog = useCallback(() => {
+    setAuthDialog('closed');
+    if (pendingSignInRef.current) {
+      pendingSignInRef.current.reject(new SignInCancelledError());
+      pendingSignInRef.current = null;
+    }
+  }, []);
+  const signIn = useCallback((): Promise<void> => {
+    // If already signed in, resolve immediately — no dialog needed.
+    if (hasToken()) return Promise.resolve();
+    // Replace any prior pending sign-in (treat as cancellation).
+    if (pendingSignInRef.current) {
+      pendingSignInRef.current.reject(new SignInCancelledError());
+      pendingSignInRef.current = null;
+    }
+    return new Promise<void>((resolve, reject) => {
+      pendingSignInRef.current = { resolve, reject };
+      setAuthDialog('sign-in');
+    });
+  }, []);
+
+  // The AuthDialog resolves a pending sign-in by calling this after hydrate
+  // succeeds. Exposed via context so the dialog can call it directly.
+  const completePendingSignIn = useCallback(() => {
+    if (pendingSignInRef.current) {
+      pendingSignInRef.current.resolve();
+      pendingSignInRef.current = null;
+    }
   }, []);
 
   const signOut = useCallback(async () => {
@@ -148,6 +209,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
     setSignedIn(false);
     setUser(GUEST_USER);
     setCloudProjects([]);
+    setCloudProjectsLoaded(false);
   }, []);
 
   const value = useMemo<AdieuContextValue>(
@@ -155,6 +217,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       signedIn,
       user,
       cloudProjects,
+      cloudProjectsLoaded,
       signIn,
       signOut,
       hydrate,
@@ -162,11 +225,13 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       authDialog,
       openAuthDialog,
       closeAuthDialog,
+      completePendingSignIn,
     }),
     [
       signedIn,
       user,
       cloudProjects,
+      cloudProjectsLoaded,
       signIn,
       signOut,
       hydrate,
@@ -174,6 +239,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       authDialog,
       openAuthDialog,
       closeAuthDialog,
+      completePendingSignIn,
     ],
   );
 
