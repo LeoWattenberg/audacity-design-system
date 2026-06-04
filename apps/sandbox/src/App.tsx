@@ -28,6 +28,12 @@ import { EditorLayout } from './components/EditorLayout';
 const TokenReview = React.lazy(() =>
   import('./pages/TokenReview').then(m => ({ default: m.TokenReview }))
 );
+
+// In the Electron shell the native menu bar (set up in apps/desktop/src/main.cjs)
+// already provides File/Edit/View/etc., so the in-app ApplicationHeader would
+// be a duplicate. Browser builds keep it.
+const IS_ELECTRON =
+  typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
 const SpectralRulerDemo = React.lazy(() => import('./pages/SpectralRulerDemo'));
 const OAuthCallback = React.lazy(() =>
   import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback }))
@@ -1145,10 +1151,12 @@ function CanvasDemoContent() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw' }}>
-      <ApplicationHeader
-        os={preferences.operatingSystem}
-        menuDefinitions={menuDefinitions}
-      />
+      {!IS_ELECTRON && (
+        <ApplicationHeader
+          os={preferences.operatingSystem}
+          menuDefinitions={menuDefinitions}
+        />
+      )}
       <ProjectToolbar
         activeItem={activeMenuItem}
         onMenuItemClick={async (item) => {
