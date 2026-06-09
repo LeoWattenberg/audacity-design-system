@@ -46,6 +46,12 @@ export interface HomeTabProps {
   onSearch?: (query: string) => void;
   className?: string;
   projects?: StoredProject[];
+  /**
+   * Project ID currently open in the editor. The matching thumbnail/row
+   * gets a "CURRENT" badge + accent border so users can spot which
+   * project the editor is editing without leaving the home tab.
+   */
+  currentProjectId?: string | null;
   audioFiles?: CloudAudioFile[];
   onDeleteAudioFile?: (id: string) => void;
   /** Render-slot for any extra account cards on the "My accounts" page
@@ -71,6 +77,7 @@ export function HomeTab({
   onSearch,
   className = '',
   projects: externalProjects,
+  currentProjectId,
   audioFiles: externalAudioFiles,
   onDeleteAudioFile,
   extraAccountsSections,
@@ -488,6 +495,7 @@ export function HomeTab({
                             thumbnailUrl={project.thumbnailUrl}
                             isCloudProject={project.isCloudProject}
                             isUploading={project.isUploading}
+                            isCurrent={project.id === currentProjectId}
                             onClick={() => {
                               console.log('Open project:', project.id);
                               if (onOpenProject) {
@@ -533,7 +541,10 @@ export function HomeTab({
                       </div>
                       <div className="home-tab__list-items">
                       {storedProjects.map((project) => (
-                        <div key={project.id} className="home-tab__list-item-wrapper">
+                        <div
+                          key={project.id}
+                          className={`home-tab__list-item-wrapper${project.id === currentProjectId ? ' home-tab__list-item-wrapper--current' : ''}`}
+                        >
                           <button
                             className="home-tab__list-item"
                             onClick={() => {
@@ -552,6 +563,9 @@ export function HomeTab({
                                 )}
                               </div>
                               <div className="home-tab__list-item-title">{project.title}</div>
+                              {project.id === currentProjectId && (
+                                <span className="home-tab__list-item-current-pill">CURRENT</span>
+                              )}
                             </div>
                             {(project.isCloudProject || project.isUploading) && (
                               <div className={`home-tab__list-item-cloud-badge${project.isUploading ? ' home-tab__list-item-cloud-badge--uploading' : ''}`}>
@@ -632,6 +646,7 @@ export function HomeTab({
                               thumbnailUrl={project.thumbnailUrl}
                               isCloudProject
                               isUploading={project.isUploading}
+                              isCurrent={project.id === currentProjectId}
                               onClick={() => onOpenProject?.(project.id)}
                               onContextMenu={(e) => {
                                 const rect = e.currentTarget.getBoundingClientRect();
@@ -660,7 +675,7 @@ export function HomeTab({
                       {currentProjects.map((project) => (
                           <div
                             key={project.id}
-                            className="home-tab__list-item-wrapper"
+                            className={`home-tab__list-item-wrapper${project.id === currentProjectId ? ' home-tab__list-item-wrapper--current' : ''}`}
                           >
                             <button
                               className="home-tab__list-item"
@@ -675,6 +690,9 @@ export function HomeTab({
                                   )}
                                 </div>
                                 <div className="home-tab__list-item-title">{project.title}</div>
+                                {project.id === currentProjectId && (
+                                  <span className="home-tab__list-item-current-pill">CURRENT</span>
+                                )}
                               </div>
                               <div className="home-tab__list-item-cloud-badge">
                                 <Icon name="cloud-filled" size={12} />

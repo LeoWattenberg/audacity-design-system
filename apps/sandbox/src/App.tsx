@@ -1605,6 +1605,7 @@ function CanvasDemoContent() {
               setIndexedDBProjects(updated);
               if (isCloud) await adieuRefreshProjects();
             }}
+            currentProjectId={currentProjectId}
             extraAccountsSections={<MuseHubHomeAccountCard />}
           />
         </div>

@@ -40,6 +40,12 @@ export interface ProjectThumbnailProps {
    */
   isUploading?: boolean;
   /**
+   * Whether this thumbnail represents the project that's currently open in
+   * the editor. Adds an accent border + "CURRENT" badge so the user can
+   * tell at a glance which project the toolbar/canvas is editing.
+   */
+  isCurrent?: boolean;
+  /**
    * Click handler
    */
   onClick?: () => void;
@@ -67,6 +73,7 @@ export function ProjectThumbnail({
   isNewProject = false,
   isCloudProject = false,
   isUploading = false,
+  isCurrent = false,
   onClick,
   onContextMenu,
   className = '',
@@ -90,7 +97,7 @@ export function ProjectThumbnail({
   };
 
   return (
-    <div className={`project-thumbnail ${isNewProject ? 'project-thumbnail--new' : ''} ${className}`}>
+    <div className={`project-thumbnail ${isNewProject ? 'project-thumbnail--new' : ''} ${isCurrent ? 'project-thumbnail--current' : ''} ${className}`}>
       <button
         className="project-thumbnail__button"
         onClick={onClick}
@@ -129,6 +136,9 @@ export function ProjectThumbnail({
             <div className={`project-thumbnail__cloud-badge ${isUploading ? 'project-thumbnail__cloud-badge--uploading' : ''}`}>
               <Icon name={isUploading ? 'cloud' : 'cloud-filled'} size={16} />
             </div>
+          )}
+          {isCurrent && !isNewProject && (
+            <div className="project-thumbnail__current-badge">CURRENT</div>
           )}
         </div>
         <div className="project-thumbnail__info">
