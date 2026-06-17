@@ -74,6 +74,9 @@ export interface ClipProps {
   clipTrimStart?: number;
   /** Full duration of original audio before trimming */
   clipFullDuration?: number;
+  /** Visual time-stretch factor (default 1). Forwarded to ClipBody so the
+   *  waveform expands / compresses horizontally without changing trim. */
+  clipStretchFactor?: number;
   /** Pixels per second (timeline zoom level) */
   pixelsPerSecond?: number;
   /** Points to hide during drag (eating behavior) */
@@ -147,6 +150,7 @@ const ClipComponent: React.FC<ClipProps> = ({
   clipDuration,
   clipTrimStart = 0,
   clipFullDuration,
+  clipStretchFactor = 1,
   pixelsPerSecond = 100,
   hiddenPointIndices = EMPTY_NUMBER_ARRAY,
   hoveredPointIndices = EMPTY_NUMBER_ARRAY,
@@ -292,6 +296,10 @@ const ClipComponent: React.FC<ClipProps> = ({
             name={name}
             width={width}
             showMenu={!isRecording}
+            showStretch={clipStretchFactor !== 1}
+            // The audio plays inversely proportional to the visible width —
+            // 2× wider clip = 50% speed, half-width = 200% speed.
+            stretchPercent={100 / clipStretchFactor}
             clipStartTime={clipStartTime}
             clipDuration={clipDuration}
             timeSelectionRange={timeSelectionRange}
@@ -343,6 +351,7 @@ const ClipComponent: React.FC<ClipProps> = ({
           clipDuration={clipDuration}
           clipTrimStart={clipTrimStart}
           clipFullDuration={clipFullDuration}
+          clipStretchFactor={clipStretchFactor}
           pixelsPerSecond={pixelsPerSecond}
           hiddenPointIndices={hiddenPointIndices}
           hoveredPointIndices={hoveredPointIndices}

@@ -10,7 +10,7 @@ export interface ClipTrimState {
   initialDuration: number;
   initialClipStart: number;
   // Store initial state for all selected clips
-  allClipsInitialState: Map<string, { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean }>;
+  allClipsInitialState: Map<string, { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean; stretchFactor?: number }>;
 }
 
 export interface UseClipTrimmingOptions {
@@ -78,7 +78,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       const selectedClips: Array<{
         trackIndex: number;
         clip: any;
-        initialState: { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean };
+        initialState: { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean; stretchFactor?: number };
       }> = [];
 
       tracks.forEach((track: any, trackIndex: number) => {
@@ -108,20 +108,22 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
         const newTrimStart = Math.max(0, mouseTime - trimState.initialClipStart + trimState.initialTrimStart);
         const trimDelta = newTrimStart - trimState.initialTrimStart;
 
-        // Calculate limits for all selected clips using their INITIAL state
+        // Calculate limits for all selected clips using their INITIAL state.
+        // `clampedTrimDelta` is in *canvas* time; trimStart is in *source* time.
+        // For stretched clips the canvas delta maps to source delta / stretchFactor,
+        // so the canvas-space bound on extending the left edge is scaled.
         let clampedTrimDelta = trimDelta; // let so snap block can mutate it
         selectedClips.forEach(({ initialState }) => {
+          const stretch = initialState.stretchFactor ?? 1;
           if (initialState.isMidi) {
-            // MIDI clips: use trimStart like audio
             const minDelta = -(initialState.trimStart ?? 0); // trimStart + delta >= 0
             const maxDelta = initialState.duration - 0.01; // duration - delta >= 0.01
             clampedTrimDelta = Math.max(minDelta, Math.min(clampedTrimDelta, maxDelta));
           } else {
-            const rightEdge = initialState.trimStart + initialState.duration;
-            // Don't allow trimming past 0
-            const minDelta = -initialState.trimStart;
-            // Don't allow trimming past right edge (min 0.01s visible)
-            const maxDelta = rightEdge - initialState.trimStart - 0.01;
+            // Don't allow trimming past 0 (source time)
+            const minDelta = -initialState.trimStart * stretch;
+            // Don't allow duration below 0.01s (canvas time)
+            const maxDelta = initialState.duration - 0.01;
             clampedTrimDelta = Math.max(minDelta, Math.min(clampedTrimDelta, maxDelta));
           }
         });
@@ -163,14 +165,14 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
                 snapHysteresisRef.current = { cursorXAtEngage: cursorX };
                 // Re-clamp after snap to prevent exposing audio past recorded boundaries.
                 selectedClips.forEach(({ initialState }) => {
+                  const stretch = initialState.stretchFactor ?? 1;
                   if (initialState.isMidi) {
                     const minDelta = -(initialState.trimStart ?? 0);
                     const maxDelta = initialState.duration - 0.01;
                     clampedTrimDelta = Math.max(minDelta, Math.min(clampedTrimDelta, maxDelta));
                   } else {
-                    const rightEdge = initialState.trimStart + initialState.duration;
-                    const minDelta = -initialState.trimStart;
-                    const maxDelta = rightEdge - initialState.trimStart - 0.01;
+                    const minDelta = -initialState.trimStart * stretch;
+                    const maxDelta = initialState.duration - 0.01;
                     clampedTrimDelta = Math.max(minDelta, Math.min(clampedTrimDelta, maxDelta));
                   }
                 });
@@ -197,9 +199,12 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
               },
             });
           } else {
-            const newTrimStartForClip = initialState.trimStart + clampedTrimDelta;
-            const rightEdge = initialState.trimStart + initialState.duration;
-            const newDuration = rightEdge - newTrimStartForClip;
+            const stretch = initialState.stretchFactor ?? 1;
+            // trimStart lives in source-audio time; clampedTrimDelta is canvas time.
+            // Map canvas → source via stretchFactor so stretched clips' trim
+            // shifts the source window by the correct amount.
+            const newTrimStartForClip = initialState.trimStart + clampedTrimDelta / stretch;
+            const newDuration = initialState.duration - clampedTrimDelta;
             const newStart = initialState.start + clampedTrimDelta;
             dispatch({
               type: 'TRIM_CLIP',
@@ -219,17 +224,21 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
         const newDuration = Math.max(0.01, mouseTime - draggedClip.start);
         const durationDelta = newDuration - trimState.initialDuration;
 
-        // Calculate limits for all selected clips using their INITIAL state
+        // Calculate limits for all selected clips using their INITIAL state.
+        // `clampedDurationDelta` is in canvas time. With stretchFactor s, the
+        // available *canvas* duration of the visible audio is
+        // (fullDuration - trimStart) * s, so the max canvas duration delta is
+        // that minus the current canvas duration.
         let clampedDurationDelta = durationDelta;
         selectedClips.forEach(({ initialState }) => {
-          // Don't allow duration to go below 0.01s
+          const stretch = initialState.stretchFactor ?? 1;
           const minDelta = 0.01 - initialState.duration;
           if (initialState.isMidi) {
-            // MIDI clips: no upper bound on duration
             clampedDurationDelta = Math.max(minDelta, clampedDurationDelta);
           } else {
-            // Don't allow duration to exceed available audio
-            const maxDelta = (initialState.fullDuration - initialState.trimStart) - initialState.duration;
+            const maxDelta =
+              (initialState.fullDuration - initialState.trimStart) * stretch
+              - initialState.duration;
             clampedDurationDelta = Math.max(minDelta, Math.min(clampedDurationDelta, maxDelta));
           }
         });
@@ -271,11 +280,14 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
                 snapHysteresisRef.current = { cursorXAtEngage: cursorX };
                 // Re-clamp after snap to prevent exposing audio past recorded boundaries.
                 selectedClips.forEach(({ initialState }) => {
+                  const stretch = initialState.stretchFactor ?? 1;
                   const minDelta = 0.01 - initialState.duration;
                   if (initialState.isMidi) {
                     clampedDurationDelta = Math.max(minDelta, clampedDurationDelta);
                   } else {
-                    const maxDelta = (initialState.fullDuration - initialState.trimStart) - initialState.duration;
+                    const maxDelta =
+                      (initialState.fullDuration - initialState.trimStart) * stretch
+                      - initialState.duration;
                     clampedDurationDelta = Math.max(minDelta, Math.min(clampedDurationDelta, maxDelta));
                   }
                 });

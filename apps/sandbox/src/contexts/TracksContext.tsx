@@ -223,6 +223,7 @@ export type TracksAction =
   | { type: 'DESELECT_ALL_CLIPS' }
   | { type: 'DELETE_CLIP'; payload: { trackIndex: number; clipId: number } }
   | { type: 'TRIM_CLIP'; payload: { trackIndex: number; clipId: number; newTrimStart: number; newDuration: number; newStart?: number } }
+  | { type: 'STRETCH_CLIP'; payload: { trackIndex: number; clipId: number; newDuration: number; newStretchFactor: number; newStart?: number } }
   | { type: 'DELETE_TIME_RANGE'; payload: { startTime: number; endTime: number } }
   | { type: 'ADD_LABEL'; payload: { trackIndex: number; label: Label } }
   | { type: 'UPDATE_LABEL'; payload: { trackIndex: number; labelId: number; label: Partial<Label> }  }
@@ -1203,6 +1204,37 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       }
 
       return { ...state, tracks: newTracks, clipDurationIndicator: newClipDurationIndicator };
+    }
+
+    case 'STRETCH_CLIP': {
+      // Visual-only time-stretch: changes the clip's visible duration while
+      // keeping its trimStart fixed and recording a `stretchFactor` so the
+      // waveform render expands (or compresses) horizontally instead of
+      // exposing more / less of the source audio.
+      const { trackIndex, clipId, newDuration, newStretchFactor, newStart } = action.payload;
+      const newTracks = [...state.tracks];
+      newTracks[trackIndex] = {
+        ...newTracks[trackIndex],
+        clips: newTracks[trackIndex].clips.map(clip => {
+          if (clip.id !== clipId) return clip;
+          const oldStretch = (clip as any).stretchFactor ?? 1;
+          const trimStart = (clip as any).trimStart ?? 0;
+          // Lock in fullDuration (source-audio length) on first stretch so
+          // subsequent trim operations have an accurate audio-bound to
+          // clamp against.
+          const fullDuration =
+            (clip as any).fullDuration ?? (trimStart + clip.duration / oldStretch);
+          const updatedClip: any = {
+            ...clip,
+            duration: newDuration,
+            stretchFactor: newStretchFactor,
+            fullDuration,
+          };
+          if (newStart !== undefined) updatedClip.start = newStart;
+          return updatedClip;
+        }),
+      };
+      return { ...state, tracks: newTracks };
     }
 
     case 'APPLY_CLIP_PLACEMENT': {

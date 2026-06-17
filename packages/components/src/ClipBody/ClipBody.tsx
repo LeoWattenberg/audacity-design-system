@@ -110,6 +110,11 @@ export interface ClipBodyProps {
   clipFullDuration?: number;
   /** Pixels per second (timeline zoom level) - for maintaining constant waveform scale */
   pixelsPerSecond?: number;
+  /** Visual time-stretch factor (default 1). Values > 1 stretch the waveform
+   *  horizontally (each second of source audio occupies more pixels); values
+   *  < 1 compress it. Independent of trim — the same audio range plays, just
+   *  drawn over a different pixel span. */
+  clipStretchFactor?: number;
   /** Time selection overlay color (default: 'rgba(255, 255, 255, 0.3)') */
   timeSelectionColor?: string;
   /** Points to hide during drag (eating behavior) */
@@ -168,6 +173,7 @@ const ClipBodyComponent: React.FC<ClipBodyProps> = ({
   clipTrimStart = 0,
   clipFullDuration,
   pixelsPerSecond = 100,
+  clipStretchFactor = 1,
   timeSelectionColor = 'rgba(255, 255, 255, 0.3)',
   hiddenPointIndices = EMPTY_NUMBER_ARRAY,
   hoveredPointIndices = EMPTY_NUMBER_ARRAY,
@@ -325,7 +331,7 @@ const ClipBodyComponent: React.FC<ClipBodyProps> = ({
         // IMPORTANT: Use fixed pixelsPerSecond to maintain constant waveform scale
         // This prevents waveform stretching when trimming
         const secondsPerPixel = 1 / pixelsPerSecond;
-        const samplesPerPixelL = secondsPerPixel * detectedSampleRate;
+        const samplesPerPixelL = (secondsPerPixel * detectedSampleRate) / clipStretchFactor;
         const trimStartSample = Math.floor(clipTrimStart * detectedSampleRate);
 
         const splitEnvelope = showEnvelope ? envelope : undefined;
@@ -370,7 +376,7 @@ const ClipBodyComponent: React.FC<ClipBodyProps> = ({
         // IMPORTANT: Use fixed pixelsPerSecond to maintain constant waveform scale
         // This prevents waveform stretching when trimming
         const secondsPerPixel = 1 / pixelsPerSecond;
-        const samplesPerPixel = secondsPerPixel * detectedSampleRate;
+        const samplesPerPixel = (secondsPerPixel * detectedSampleRate) / clipStretchFactor;
         const trimStartSample = Math.floor(clipTrimStart * detectedSampleRate);
 
         const splitEnvelopeMono = showEnvelope ? envelope : undefined;
@@ -448,7 +454,7 @@ const ClipBodyComponent: React.FC<ClipBodyProps> = ({
       // IMPORTANT: Use fixed pixelsPerSecond to maintain constant waveform scale
       // This prevents waveform stretching when trimming
       const secondsPerPixel = 1 / pixelsPerSecond;
-      const samplesPerPixel = secondsPerPixel * detectedSampleRate;
+      const samplesPerPixel = (secondsPerPixel * detectedSampleRate) / clipStretchFactor;
       const trimStartSample = Math.floor(clipTrimStart * detectedSampleRate);
 
       // Calculate time selection bounds in pixels (if applicable)
@@ -513,7 +519,7 @@ const ClipBodyComponent: React.FC<ClipBodyProps> = ({
       // IMPORTANT: Use fixed pixelsPerSecond to maintain constant waveform scale
       // This prevents waveform stretching when trimming
       const secondsPerPixel = 1 / pixelsPerSecond;
-      const samplesPerPixel = secondsPerPixel * detectedSampleRate;
+      const samplesPerPixel = (secondsPerPixel * detectedSampleRate) / clipStretchFactor;
       const trimStartSample = Math.floor(clipTrimStart * detectedSampleRate);
 
       // Calculate time selection bounds in pixels (if applicable)

@@ -2,6 +2,7 @@ import React from 'react';
 import type { ClipColor } from '../types/clip';
 import { Icon } from '../Icon';
 import { useTheme } from '../ThemeProvider';
+import '../assets/fonts/musescore-icon.css';
 import './ClipHeader.css';
 
 export type ClipHeaderState = 'default' | 'hover';
@@ -27,6 +28,10 @@ export interface ClipHeaderProps {
   showSpeed?: boolean;
   /** Speed value to display */
   speedValue?: string;
+  /** Whether to show the time-stretch indicator (clock glyph + percent). */
+  showStretch?: boolean;
+  /** Stretch as a percent (e.g. 200 for 2× stretch). Rounded display. */
+  stretchPercent?: number;
   /** Whether to show the menu button */
   showMenu?: boolean;
   /** Click handler for the header */
@@ -64,6 +69,8 @@ export const ClipHeader: React.FC<ClipHeaderProps> = ({
   pitchValue = '4.04',
   showSpeed = false,
   speedValue = '112%',
+  showStretch = false,
+  stretchPercent = 100,
   showMenu = true,
   onClick,
   onMenuClick,
@@ -151,6 +158,18 @@ export const ClipHeader: React.FC<ClipHeaderProps> = ({
             <div className="clip-header__badge">
               <span className="clip-header__badge-icon">⚡</span>
               <span className="clip-header__badge-value">{speedValue}</span>
+            </div>
+          )}
+
+          {showStretch && (
+            <div className="clip-header__badge">
+              <span
+                className="clip-header__badge-icon musescore-icon"
+                aria-hidden="true"
+              >
+                {'\uF475'}
+              </span>
+              <span className="clip-header__badge-value">{Math.round(stretchPercent)}%</span>
             </div>
           )}
 

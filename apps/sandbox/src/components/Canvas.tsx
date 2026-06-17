@@ -7,6 +7,7 @@ import { useSpectralSelection } from '../contexts/SpectralSelectionContext';
 import { usePreferences } from '@dilsonspickles/components';
 import { useClipDragging } from '../hooks/useClipDragging';
 import { useClipTrimming } from '../hooks/useClipTrimming';
+import { useClipStretching } from '../hooks/useClipStretching';
 import { useLabelDragging } from '../hooks/useLabelDragging';
 import { useClipMouseDown } from '../hooks/useClipMouseDown';
 import { useContainerClick } from '../hooks/useContainerClick';
@@ -278,6 +279,18 @@ export function Canvas({
   const {
     clipTrimStateRef,
   } = useClipTrimming({
+    containerRef,
+    tracks,
+    pixelsPerSecond,
+    clipContentOffset: CLIP_CONTENT_OFFSET,
+  });
+
+  // Clip time-stretching - visual only (mirrors trimming).
+  const {
+    clipStretchStateRef,
+    startClipStretch,
+    wasJustStretching,
+  } = useClipStretching({
     containerRef,
     tracks,
     pixelsPerSecond,
@@ -637,7 +650,9 @@ export function Canvas({
                   }
 
                   // Don't handle regular clicks if we just finished dragging (creating time selection)
-                  if (selection.selection.wasJustDragging()) {
+                  // or stretching — both synthesise a click on the track LCA at mouseup, and
+                  // dispatching DESELECT_ALL_CLIPS here would clear the just-edited clip.
+                  if (selection.selection.wasJustDragging() || wasJustStretching()) {
                     return;
                   }
 
@@ -974,7 +989,7 @@ export function Canvas({
                     }
 
                     // Store initial state for all selected clips (including the one we just selected)
-                    const allClipsInitialState = new Map<string, { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean }>();
+                    const allClipsInitialState = new Map<string, { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean; stretchFactor?: number }>();
                     tracks.forEach((t, tIndex) => {
                       const isMidiTrack = t.type === 'midi';
                       const allTrackClips = [...t.clips, ...(t.midiClips || [])];
@@ -983,7 +998,11 @@ export function Canvas({
                         if (c.selected || (tIndex === trackIndex && c.id === clipId)) {
                           const isMidi = isMidiTrack || (t.midiClips || []).some((mc: any) => mc.id === c.id);
                           const trimStart = (c as any).trimStart || 0;
-                          const fullDuration = (c as any).fullDuration || (trimStart + c.duration);
+                          const stretchFactor = (c as any).stretchFactor ?? 1;
+                          // fullDuration is the source-audio length. If we don't
+                          // have it stored yet, recover it from the visible duration
+                          // by dividing by stretchFactor (canvas → source seconds).
+                          const fullDuration = (c as any).fullDuration || (trimStart + c.duration / stretchFactor);
                           const key = `${tIndex}-${c.id}`;
                           allClipsInitialState.set(key, {
                             trimStart,
@@ -991,6 +1010,7 @@ export function Canvas({
                             start: c.start,
                             fullDuration,
                             isMidi,
+                            stretchFactor,
                           });
                         }
                       });
@@ -1008,6 +1028,28 @@ export function Canvas({
                   }
 
                   // The actual trimming happens in the mousemove handler
+                }}
+                onClipStretchEdge={(clipId, edge) => {
+                  // Only initialize once per drag — Clip.tsx calls back on every
+                  // mousemove. Subsequent mousemoves are handled inside the
+                  // stretch hook against the snapshot we capture here.
+                  if (clipStretchStateRef.current) return;
+                  const clip = track.clips.find(c => c.id === clipId);
+                  if (!clip) return;
+                  if (!clip.selected) {
+                    dispatch({
+                      type: 'SELECT_CLIP',
+                      payload: { trackIndex, clipId: clipId as number },
+                    });
+                  }
+                  startClipStretch({
+                    trackIndex,
+                    clipId: clipId as number,
+                    edge,
+                    initialDuration: clip.duration,
+                    initialStart: clip.start,
+                    initialStretchFactor: (clip as any).stretchFactor ?? 1,
+                  });
                 }}
                 envelopePointSizes={envelopePointSizes}
                 spectrogramScale={track.spectrogramScale ?? spectrogramScale}

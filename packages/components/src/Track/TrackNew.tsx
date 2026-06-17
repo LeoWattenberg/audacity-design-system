@@ -140,6 +140,9 @@ export interface TrackProps {
    * Callback when a clip edge is being trimmed
    */
   onClipTrimEdge?: (clipId: string | number, edge: 'left' | 'right', clientX: number) => void;
+  /** Visual time-stretch handles. Mirrors onClipTrimEdge — Canvas hooks this
+   *  up to a stretch handler that updates duration + stretchFactor. */
+  onClipStretchEdge?: (clipId: string | number, edge: 'left' | 'right', clientX: number) => void;
 
   /**
    * Tab index for keyboard navigation
@@ -322,6 +325,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
   onClipHeaderClick,
   onClipMenuClick,
   onClipTrimEdge,
+  onClipStretchEdge,
   tabIndex,
   onFocusChange,
   onClipMove,
@@ -669,6 +673,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             clipDuration={clip.duration}
             clipTrimStart={(clip as any).trimStart || 0}
             clipFullDuration={(clip as any).fullDuration}
+            clipStretchFactor={(clip as any).stretchFactor ?? 1}
             pixelsPerSecond={pixelsPerSecond}
             hiddenPointIndices={clipHiddenPoints.get(clip.id) ?? EMPTY_NUMBER_ARRAY}
             hoveredPointIndices={clipHoveredPoints.get(clip.id) ?? EMPTY_NUMBER_ARRAY}
@@ -683,6 +688,11 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             onTrimEdge={
               onClipTrimEdge
                 ? ({ edge, clientX }) => onClipTrimEdge(clip.id, edge, clientX)
+                : undefined
+            }
+            onStretchEdge={
+              onClipStretchEdge
+                ? ({ edge, clientX }) => onClipStretchEdge(clip.id, edge, clientX)
                 : undefined
             }
           />
