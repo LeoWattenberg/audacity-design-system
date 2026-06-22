@@ -850,11 +850,19 @@ export function Canvas({
                   const clip = track.clips.find(c => c.id === clipId) || (track.midiClips || []).find(c => c.id === clipId);
                   if (!clip) return;
 
+                  // Stretch-aware bounds: duration / deltaSeconds are in CANVAS
+                  // time; trimStart / fullDuration are in SOURCE time. With
+                  // stretchFactor s, a source span of S occupies S * s on the
+                  // canvas, so the canvas-time max duration is
+                  // (fullDuration - trimStart) * s, and a canvas delta of d
+                  // shifts trimStart by d / s in source time.
+                  const stretch = (clip as any).stretchFactor ?? 1;
                   const currentTrimStart = (clip as any).trimStart || 0;
                   const currentDuration = clip.duration;
                   const currentStart = clip.start;
-                  const fullDuration = (clip as any).fullDuration || (currentTrimStart + currentDuration);
-                  const currentMaxDuration = fullDuration - currentTrimStart;
+                  const fullDuration =
+                    (clip as any).fullDuration || (currentTrimStart + currentDuration / stretch);
+                  const currentMaxDuration = (fullDuration - currentTrimStart) * stretch;
                   const isAtMaxDuration = Math.abs(currentDuration - currentMaxDuration) < 0.001;
 
                   let newTrimStart = currentTrimStart;
@@ -862,40 +870,33 @@ export function Canvas({
                   let newStart = currentStart;
 
                   if (edge === 'left') {
-                    // Left edge: positive delta = trim (increase trimStart), negative = expand (decrease trimStart)
-                    // When expanding left (negative delta), check if we're already at max duration
+                    // Left edge: positive delta = trim (increase trimStart), negative = expand
                     if (deltaSeconds < 0 && isAtMaxDuration) {
-                      // Already at max duration, don't allow any expansion left
                       return;
                     }
 
-                    newTrimStart = currentTrimStart + deltaSeconds;
-                    newDuration = Math.max(0.1, currentDuration - deltaSeconds); // Minimum 0.1s duration
+                    newTrimStart = currentTrimStart + deltaSeconds / stretch;
+                    newDuration = Math.max(0.1, currentDuration - deltaSeconds);
                     newStart = currentStart + deltaSeconds;
 
-                    // Don't allow expanding beyond the full duration
-                    const maxDuration = fullDuration - newTrimStart;
+                    // Don't allow expanding past the source audio. Canvas-time max.
+                    const maxDuration = (fullDuration - newTrimStart) * stretch;
                     if (newDuration > maxDuration) {
-                      // Clamp to max duration and adjust trimStart/start accordingly
                       newDuration = maxDuration;
-                      newTrimStart = fullDuration - newDuration;
-                      newStart = currentStart + (newTrimStart - currentTrimStart);
+                      newTrimStart = fullDuration - newDuration / stretch;
+                      newStart = currentStart + (newTrimStart - currentTrimStart) * stretch;
                     }
                   } else {
-                    // Right edge: positive delta = trim (decrease duration), negative = expand (increase duration)
-                    // When expanding right (negative delta), check if we're already at max duration
+                    // Right edge: positive delta = trim, negative = expand
                     if (deltaSeconds < 0 && isAtMaxDuration) {
-                      // Already at max duration, don't allow any expansion right
                       return;
                     }
 
-                    newDuration = Math.max(0.1, currentDuration - deltaSeconds); // Minimum 0.1s duration
-                    // Don't allow expanding beyond the full duration
-                    const maxDuration = fullDuration - currentTrimStart;
+                    newDuration = Math.max(0.1, currentDuration - deltaSeconds);
+                    const maxDuration = (fullDuration - currentTrimStart) * stretch;
                     newDuration = Math.min(newDuration, maxDuration);
                   }
 
-                  // Ensure trimStart doesn't go negative
                   newTrimStart = Math.max(0, newTrimStart);
 
                   dispatch({
@@ -906,6 +907,41 @@ export function Canvas({
                       newTrimStart,
                       newDuration,
                       newStart: edge === 'left' ? newStart : undefined,
+                    },
+                  });
+                }}
+                onClipStretch={(clipId, edge, deltaSeconds) => {
+                  // Keyboard time-stretch (Alt+Arrow). Sign convention
+                  // matches onClipTrim: positive delta shrinks the clip
+                  // from `edge`, negative grows it.
+                  //
+                  // - edge='right', delta=+ → right edge moves left  (shorter)
+                  // - edge='right', delta=- → right edge moves right (longer)
+                  // - edge='left',  delta=+ → left edge moves right  (shorter, clip.start advances)
+                  // - edge='left',  delta=- → left edge moves left   (longer, clip.start retreats)
+                  //
+                  // Stretch factor scales with the canvas-duration ratio.
+                  // Same clamps as the mouse-drag stretch hook: 0.1s min,
+                  // factor 0.1×–10×.
+                  const clip = track.clips.find(c => c.id === clipId);
+                  if (!clip) return;
+                  const currentDuration = clip.duration;
+                  const currentStart = clip.start;
+                  const currentStretch = (clip as any).stretchFactor ?? 1;
+                  const newDuration = Math.max(0.1, currentDuration - deltaSeconds);
+                  const ratio = newDuration / currentDuration;
+                  const newStretchFactor = Math.max(
+                    0.1,
+                    Math.min(10, currentStretch * ratio),
+                  );
+                  dispatch({
+                    type: 'STRETCH_CLIP',
+                    payload: {
+                      trackIndex,
+                      clipId: clipId as number,
+                      newDuration,
+                      newStretchFactor,
+                      newStart: edge === 'left' ? currentStart + deltaSeconds : undefined,
                     },
                   });
                 }}

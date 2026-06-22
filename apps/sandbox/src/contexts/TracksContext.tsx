@@ -1203,7 +1203,21 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         };
       }
 
-      return { ...state, tracks: newTracks, clipDurationIndicator: newClipDurationIndicator };
+      // If a time selection is currently locked to this clip's bounds
+      // (e.g. set by SELECT_CLIP), follow the edit so it doesn't drift.
+      let newTimeSelection = state.timeSelection;
+      if (clip && state.timeSelection
+        && Math.abs(state.timeSelection.startTime - clip.start) < 0.001
+        && Math.abs(state.timeSelection.endTime - (clip.start + clip.duration)) < 0.001) {
+        const finalStart = newStart !== undefined ? newStart : clip.start;
+        newTimeSelection = {
+          ...state.timeSelection,
+          startTime: finalStart,
+          endTime: finalStart + newDuration,
+        };
+      }
+
+      return { ...state, tracks: newTracks, clipDurationIndicator: newClipDurationIndicator, timeSelection: newTimeSelection };
     }
 
     case 'STRETCH_CLIP': {
@@ -1212,6 +1226,7 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       // waveform render expands (or compresses) horizontally instead of
       // exposing more / less of the source audio.
       const { trackIndex, clipId, newDuration, newStretchFactor, newStart } = action.payload;
+      const targetClip = state.tracks[trackIndex]?.clips.find(c => c.id === clipId);
       const newTracks = [...state.tracks];
       newTracks[trackIndex] = {
         ...newTracks[trackIndex],
@@ -1234,7 +1249,35 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
           return updatedClip;
         }),
       };
-      return { ...state, tracks: newTracks };
+
+      // If a time selection or clip duration indicator was locked to this
+      // clip's bounds (e.g. set by SELECT_CLIP), follow the stretch so the
+      // overlay doesn't drift away from the clip.
+      const finalStart = newStart !== undefined ? newStart : targetClip?.start ?? 0;
+      const finalEnd = finalStart + newDuration;
+
+      let newTimeSelection = state.timeSelection;
+      if (targetClip && state.timeSelection
+        && Math.abs(state.timeSelection.startTime - targetClip.start) < 0.001
+        && Math.abs(state.timeSelection.endTime - (targetClip.start + targetClip.duration)) < 0.001) {
+        newTimeSelection = {
+          ...state.timeSelection,
+          startTime: finalStart,
+          endTime: finalEnd,
+        };
+      }
+
+      let newClipDurationIndicator = state.clipDurationIndicator;
+      if (targetClip?.selected && state.clipDurationIndicator) {
+        newClipDurationIndicator = { startTime: finalStart, endTime: finalEnd };
+      }
+
+      return {
+        ...state,
+        tracks: newTracks,
+        timeSelection: newTimeSelection,
+        clipDurationIndicator: newClipDurationIndicator,
+      };
     }
 
     case 'APPLY_CLIP_PLACEMENT': {

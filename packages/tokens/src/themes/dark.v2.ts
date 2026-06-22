@@ -201,7 +201,8 @@ export const darkTheme: ThemeTokens = {
     },
 
     panel: {
-      ruler: '#252B31',          // Timeline ruler background
+      ruler: '#1f2024',          // Vertical ruler (dark, sits over canvas)
+      timeline: '#252B31',       // Horizontal timeline ruler
     },
 
     toolbar: '#2E353C',          // Main + project toolbar surface

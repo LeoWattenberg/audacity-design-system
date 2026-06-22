@@ -30,6 +30,9 @@ interface Clip {
   selected?: boolean;
   trimStart?: number;
   fullDuration?: number;
+  /** Visual time-stretch factor (canvas / source). Splits + trims need it
+   *  so canvas-time deltas map to source-time updates correctly. */
+  stretchFactor?: number;
   deletedRegions?: DeletedRegion[];
 }
 
@@ -68,6 +71,13 @@ export function applySplitCut(
       clips: track.clips.flatMap(clip => {
       const clipStart = clip.start;
       const clipEnd = clip.start + clip.duration;
+      // Canvas-time → source-time conversion factor. All clip durations and
+      // selection times are canvas time; trimStart + fullDuration are source
+      // time. For non-stretched clips this is 1× so the math collapses.
+      const stretch = clip.stretchFactor ?? 1;
+      // Source-time fallback when fullDuration isn't recorded: canvas
+      // duration ÷ stretch.
+      const inferredFullDuration = clip.fullDuration || (clip.duration / stretch);
 
       // Case 1: No overlap - keep clip unchanged
       if (endTime <= clipStart || startTime >= clipEnd) {
@@ -81,21 +91,23 @@ export function applySplitCut(
 
       // Case 3: Deletion completely within clip - split into 2 clips
       if (startTime > clipStart && endTime < clipEnd) {
-        const relativeStart = startTime - clipStart;
-        const relativeEnd = endTime - clipStart;
+        const relativeStart = startTime - clipStart;       // canvas time
+        const relativeEnd = endTime - clipStart;           // canvas time
 
         // First clip: from start to deletion start
         const firstClip: Clip = {
           ...clip,
           duration: relativeStart,
           trimStart: clip.trimStart, // Preserve existing trimStart (don't inherit from spread)
-          fullDuration: clip.fullDuration || clip.duration, // Preserve full duration
+          fullDuration: inferredFullDuration,
           envelopePoints: clip.envelopePoints.filter(p => p.time < relativeStart),
         };
 
-        // Second clip: from deletion end to clip end
+        // Second clip: from deletion end to clip end. Both clips inherit the
+        // parent's stretchFactor; trimStart advances by the canvas-time gap
+        // mapped to source time.
         const secondClipDuration = clipEnd - endTime;
-        const newTrimStart = (clip.trimStart || 0) + relativeEnd;
+        const newTrimStart = (clip.trimStart || 0) + relativeEnd / stretch;
 
         const secondClip: Clip = {
           ...clip,
@@ -104,8 +116,7 @@ export function applySplitCut(
           start: endTime,
           duration: secondClipDuration,
           trimStart: newTrimStart,
-          fullDuration: clip.fullDuration || clip.duration, // Preserve full duration
-          // Shift envelope points left by the amount cut + the first clip duration
+          fullDuration: inferredFullDuration,
           envelopePoints: clip.envelopePoints
             .filter(p => p.time >= relativeEnd)
             .map(p => ({ ...p, time: p.time - relativeEnd })),
@@ -115,18 +126,17 @@ export function applySplitCut(
       }
 
       // Case 4: Deletion overlaps start of clip - trim the overlapping portion
-      // In split cut, we don't shift the clip - we just trim from the beginning
       if (startTime <= clipStart && endTime > clipStart) {
-        const overlapDuration = endTime - clipStart;
+        const overlapDuration = endTime - clipStart;       // canvas time
         const newDuration = clip.duration - overlapDuration;
-        const newTrimStart = (clip.trimStart || 0) + overlapDuration;
+        const newTrimStart = (clip.trimStart || 0) + overlapDuration / stretch;
 
         return [{
           ...clip,
-          start: endTime, // Clip now starts where the deletion ends
+          start: endTime,
           duration: newDuration,
           trimStart: newTrimStart,
-          fullDuration: clip.fullDuration || clip.duration,
+          fullDuration: inferredFullDuration,
           envelopePoints: clip.envelopePoints
             .map(p => ({ ...p, time: p.time - overlapDuration }))
             .filter(p => p.time >= 0),
@@ -135,13 +145,13 @@ export function applySplitCut(
 
       // Case 5: Deletion overlaps end of clip - trim end
       if (startTime < clipEnd && endTime >= clipEnd) {
-        const relativeStart = startTime - clipStart;
+        const relativeStart = startTime - clipStart;       // canvas time
         const newDuration = relativeStart;
 
         return [{
           ...clip,
           duration: newDuration,
-          fullDuration: clip.fullDuration || clip.duration,
+          fullDuration: inferredFullDuration,
           envelopePoints: clip.envelopePoints.filter(p => p.time < relativeStart),
         }];
       }
@@ -218,9 +228,11 @@ export function applyRippleCut(
 
       // Case 4: Deletion overlaps start of clip
       if (startTime <= clipStart && endTime > clipStart) {
-        const overlapDuration = endTime - clipStart;
+        const overlapDuration = endTime - clipStart;       // canvas time
+        const stretch = clip.stretchFactor ?? 1;
         const newDuration = clip.duration - overlapDuration;
-        const newTrimStart = (clip.trimStart || 0) + overlapDuration;
+        // trimStart is source time; canvas overlap → source via stretch.
+        const newTrimStart = (clip.trimStart || 0) + overlapDuration / stretch;
 
         // Shift envelope points left by overlap duration
         const shiftedEnvelopePoints = clip.envelopePoints

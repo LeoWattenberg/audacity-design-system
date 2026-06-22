@@ -194,14 +194,15 @@ export const lightTheme: ThemeTokens = {
     },
 
     trackHeader: {
-      idle: '#E3E3E8',           // Light gray idle state
-      hover: '#D9D9DE',          // Slightly darker on hover
-      selected: '#D0D0D5',
+      idle: '#EEEEF1',           // Matches previous surface.subtle (track-panel idle)
+      hover: '#F2F2F7',          // Matches previous surface.hover (track-panel hover)
+      selected: '#F8F8F9',       // Matches previous surface.default (track-panel active)
       parent: '#E3E3E8',         // Parent panel that holds the track header rows
     },
 
     panel: {
-      ruler: '#262932',          // Ruler background (dark even in light theme)
+      ruler: '#262932',          // Vertical ruler (dark, sits over canvas)
+      timeline: '#E3E3E8',       // Horizontal timeline ruler (light)
     },
 
     toolbar: '#F8F8F9',          // Main + project toolbar surface

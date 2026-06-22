@@ -274,8 +274,12 @@ export interface ThemeTokens {
 
     /** Panel backgrounds (rulers, sidebars) */
     panel: {
-      /** Ruler background */
+      /** Vertical (dB / frequency) ruler background — intentionally dark in
+       *  both themes so the labels read against the canvas below. */
       ruler: string;
+      /** Horizontal timeline ruler background — adapts to the active theme
+       *  so it matches surrounding toolbar / panel surfaces. */
+      timeline: string;
     };
 
     /** Toolbar surface (main tool toolbar + project toolbar). Distinct from

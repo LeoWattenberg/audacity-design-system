@@ -165,6 +165,14 @@ export interface TrackProps {
   onClipTrim?: (clipId: string | number, edge: 'left' | 'right', deltaSeconds: number) => void;
 
   /**
+   * Callback when a clip should be time-stretched via the keyboard
+   * (Alt+ArrowLeft / Alt+ArrowRight). Positive `deltaSeconds` extends the
+   * right edge to the right, negative shortens it. Mirrors `onClipTrim`'s
+   * shape so wiring in Canvas can be parallel.
+   */
+  onClipStretch?: (clipId: string | number, edge: 'left' | 'right', deltaSeconds: number) => void;
+
+  /**
    * Callback when a clip should be moved to a different track (Cmd+Arrow Up/Down)
    */
   onClipMoveToTrack?: (clipId: string | number, direction: 1 | -1) => void;
@@ -330,6 +338,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
   onFocusChange,
   onClipMove,
   onClipTrim,
+  onClipStretch,
   onClipMoveToTrack,
   onClipNavigateVertical,
   timeSelection,
@@ -599,8 +608,32 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               return;
             }
 
-            // Expand clip with Shift+Arrow keys (trim with Cmd+Shift+Arrow)
-            if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            // Time-stretch with Alt layered onto the trim shortcuts. Alt is
+            // the "stretch instead of trim" modifier; otherwise the combo
+            // matches the trim shortcuts exactly so direction semantics are
+            // identical:
+            //   Alt+Shift+ArrowLeft        → left edge moves left   (lengthen)
+            //   Alt+Shift+ArrowRight       → right edge moves right (lengthen)
+            //   Cmd+Alt+Shift+ArrowLeft    → right edge moves left  (shorten)
+            //   Cmd+Alt+Shift+ArrowRight   → left edge moves right  (shorten)
+            // Sign convention matches onClipTrim: positive delta shrinks,
+            // negative delta grows.
+            if (e.altKey && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+              e.preventDefault();
+              const stretchAmount = 0.1;
+              const isCompressing = e.metaKey || e.ctrlKey;
+              const edge = isCompressing
+                ? (e.key === 'ArrowLeft' ? 'right' : 'left')
+                : (e.key === 'ArrowLeft' ? 'left' : 'right');
+              const delta = isCompressing ? stretchAmount : -stretchAmount;
+              onClipStretch?.(clip.id, edge, delta);
+              return;
+            }
+
+            // Expand clip with Shift+Arrow keys (trim with Cmd+Shift+Arrow).
+            // Skip when Alt is held — that combo belongs to the stretch
+            // branch above so trim doesn't double-fire.
+            if (e.shiftKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
               e.preventDefault();
               const trimAmount = 0.1; // Trim by 0.1 seconds
               const isTrimming = e.metaKey || e.ctrlKey;
