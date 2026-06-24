@@ -12,9 +12,10 @@ export interface GhostButtonProps {
    * Button size
    * - tiny: 16px × 16px, 14px icon (table headers)
    * - small: 20px × 20px, 16px icon (default, icon-only)
+   * - medium: 28px × 28px, 16px icon (toolbar-aligned icon-only buttons)
    * - large: 48px × 48px, 32px icon (carousel buttons)
    */
-  size?: 'tiny' | 'small' | 'large';
+  size?: 'tiny' | 'small' | 'medium' | 'large';
   /**
    * Optional label text to display next to the icon
    */

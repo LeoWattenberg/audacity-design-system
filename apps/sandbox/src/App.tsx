@@ -1434,10 +1434,11 @@ function CanvasDemoContent() {
         rightContent={
           activeMenuItem !== 'export' ? (
             <>
-              <span style={{ fontSize: '13px', color: baseTheme.foreground.text.primary, marginRight: '8px' }}>Workspace</span>
+              <span style={{ fontSize: '13px', color: baseTheme.foreground.text.primary, marginRight: '4px' }}>Workspace</span>
               <ToolbarGroup ariaLabel="Workspace controls" tabGroupId="project-toolbar-workspace">
                 <Dropdown
                   value={workspace}
+                  width="162px"
                   options={[
                     { value: 'music', label: 'Music' },
                     { value: 'classic', label: 'Classic' },
@@ -1454,8 +1455,10 @@ function CanvasDemoContent() {
                     }
                   }}
                 />
-                <GhostButton icon="undo" ariaLabel="Undo" />
-                <GhostButton icon="redo" ariaLabel="Redo" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <GhostButton icon="undo" ariaLabel="Undo" size="medium" />
+                  <GhostButton icon="redo" ariaLabel="Redo" size="medium" />
+                </div>
               </ToolbarGroup>
             </>
           ) : null

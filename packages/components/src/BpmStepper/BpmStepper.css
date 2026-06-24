@@ -1,11 +1,14 @@
 .bpm-stepper {
   display: inline-flex;
   align-items: stretch;
-  gap: 0;
+  /* 1px gap shows the parent (toolbar) bg through, acting as the visual
+     separator between the digits and the up/down arrow column — same trick
+     as the TimeCode component. 28px total (border included) lines up with
+     the TimeCode selector and the 28px toolbar buttons. */
+  gap: 1px;
+  box-sizing: border-box;
   height: 28px;
-  border: 1px solid var(--timecode-border);
-  border-radius: 2px;
-  background: var(--timecode-bg);
+  border-radius: 3px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   position: relative;
   width: fit-content;
@@ -28,7 +31,7 @@
   align-items: center;
   background: var(--timecode-bg);
   padding: 0 4px;
-  min-height: 28px;
+  height: 28px;
   gap: 1px;
 }
 
@@ -83,14 +86,17 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Up/down arrow column */
+/* Up/down arrow column. Separator from the digits is handled by the outer
+   container's `gap: 1px`, so no border-left here. `gap: 1px` between the
+   two arrow buttons gives the same toolbar-bg-through-the-seam look as the
+   outer container. */
 .bpm-stepper__arrows {
   display: flex;
   flex-direction: column;
   justify-content: stretch;
   width: 16px;
   flex-shrink: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 1px;
 }
 
 .bpm-stepper__arrow {
@@ -98,17 +104,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: var(--timecode-bg);
   border: 0;
   padding: 0;
   margin: 0;
   color: var(--timecode-text);
   cursor: pointer;
   transition: background-color 0.12s ease;
-}
-
-.bpm-stepper__arrow + .bpm-stepper__arrow {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .bpm-stepper__arrow:hover:not(:disabled) {
