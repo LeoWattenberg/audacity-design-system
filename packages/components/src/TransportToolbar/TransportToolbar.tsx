@@ -382,9 +382,20 @@ export function TransportToolbar({
               <ToolbarButtonGroup gap={2}>
                 <ToggleToolButton
                   icon="automation"
-                  ariaLabel="Automation"
+                  ariaLabel="Clip envelope"
                   isActive={envelopeMode}
                   onClick={onToggleEnvelope}
+                />
+                <ToolButton
+                  icon="split"
+                  ariaLabel="Cut / Split"
+                  onClick={() => {}}
+                />
+                <ToggleToolButton
+                  icon="spectrogram"
+                  ariaLabel="Spectral view"
+                  isActive={spectrogramMode}
+                  onClick={onToggleSpectrogram}
                 />
               </ToolbarButtonGroup>
 
@@ -451,7 +462,7 @@ export function TransportToolbar({
                 />
                 <ToolButton icon="split" ariaLabel="Cut / Split" onClick={() => {}} />
                 <ToggleToolButton
-                  icon="waveform"
+                  icon="spectrogram"
                   ariaLabel="Spectral view"
                   isActive={spectrogramMode}
                   onClick={onToggleSpectrogram}
