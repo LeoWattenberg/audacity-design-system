@@ -12,7 +12,12 @@
   --toolbar-gap: 8px;
 }
 
-/* Main toolbar container */
+/* Main toolbar container. Vertical padding is 10px so it survives wrapping:
+   with 28px controls and a 48px single-row minHeight, 10+28+10 = 48 fills the
+   row exactly. When the toolbar wraps to a second row the same 10px stays
+   above the first row and below the last, keeping the visual padding stable
+   instead of collapsing from "10px centered" → "4px tight" the moment it
+   gains a second row. */
 .toolbar {
   display: flex;
   align-items: center;
@@ -20,7 +25,7 @@
   flex-shrink: 0;
   background-color: var(--toolbar-bg);
   border-bottom: 1px solid var(--toolbar-border);
-  padding: 4px var(--toolbar-padding-x);
+  padding: 10px var(--toolbar-padding-x);
   width: 100%;
   box-sizing: border-box;
 }
@@ -44,11 +49,15 @@
   flex-shrink: 0;
 }
 
-/* Right content area */
+/* Right content area. `align-self: flex-end` keeps it pinned to the last
+   wrapped row of `.toolbar__content` instead of vertically centering across
+   the full (taller) toolbar when content wraps. In the single-row case the
+   toolbar is exactly tall enough for one row so this is a no-op. */
 .toolbar__right {
   display: flex;
   align-items: center;
   gap: var(--toolbar-gap);
+  align-self: flex-end;
 }
 
 /* Divider between button groups */
