@@ -30,6 +30,7 @@ export type IconName =
   | 'cut'
   | 'split'
   | 'spectrogram'
+  | 'workspace'
   | 'cog'
   | 'trash'
   | 'silence'
@@ -92,6 +93,7 @@ const ICON_MAP: Record<IconName, string> = {
   cut: '\uF39A',
   split: '\uF494',
   spectrogram: '\uF442',
+  workspace: '\uF46B',
   cog: '\uEF55',
   trash: '\uEF2C',
   silence: '\uF43A',

@@ -410,6 +410,41 @@ function CanvasDemoContent() {
     | { kind: 'floating'; x: number; y: number };
   const [toolbarPosition, setToolbarPosition] = React.useState<ToolbarPosition>({ kind: 'top' });
   const [meterOrientation, setMeterOrientation] = React.useState<'horizontal' | 'vertical'>('horizontal');
+
+  // Project-toolbar responsiveness. Below ~900px the "Workspace" label +
+  // dropdown is replaced by a single workspace-icon button that opens the
+  // same options via a context menu, freeing space in the right slot.
+  const PROJECT_TOOLBAR_COMPACT_BELOW = 1200;
+  // At an even narrower threshold, the center toolbar's labelled ghost
+  // buttons (Audio setup / Get effects / etc.) drop their labels and
+  // render as icon-only so the row keeps fitting.
+  const PROJECT_TOOLBAR_LABELS_BELOW = 900;
+  const [windowWidth, setWindowWidth] = React.useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1920,
+  );
+  React.useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const isWorkspaceCompact = windowWidth < PROJECT_TOOLBAR_COMPACT_BELOW;
+  const isLabelsCompact = windowWidth < PROJECT_TOOLBAR_LABELS_BELOW;
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = React.useState(false);
+  const [workspaceMenuPos, setWorkspaceMenuPos] = React.useState({ x: 0, y: 0 });
+  const workspaceIconRef = React.useRef<HTMLDivElement>(null);
+  const openWorkspaceMenu = () => {
+    if (workspaceIconRef.current) {
+      const rect = workspaceIconRef.current.getBoundingClientRect();
+      setWorkspaceMenuPos({ x: rect.left, y: rect.bottom + 2 });
+    }
+    setWorkspaceMenuOpen(true);
+  };
+  const handleWorkspacePick = (next: Workspace) => {
+    setWorkspace(next);
+    if (next === 'spectral-editing') dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: true });
+    else if (next === 'classic') dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: false });
+    setWorkspaceMenuOpen(false);
+  };
   const dragStateRef = React.useRef<{ offsetX: number; offsetY: number } | null>(null);
 
   const handleToolbarGripperMouseDown = React.useCallback(
@@ -1396,10 +1431,20 @@ function CanvasDemoContent() {
         centerContent={
           activeMenuItem !== 'export' ? (
             <ToolbarGroup ariaLabel="Toolbar options" tabGroupId="project-toolbar-actions">
-              {showMixer && <GhostButton icon="mixer" label="Mixer" onClick={() => setMixerPanelOpen(prev => !prev)} />}
+              {showMixer && (
+                <GhostButton
+                  icon="mixer"
+                  ariaLabel="Mixer"
+                  label={isLabelsCompact ? undefined : 'Mixer'}
+                  size={isLabelsCompact ? 'medium' : undefined}
+                  onClick={() => setMixerPanelOpen(prev => !prev)}
+                />
+              )}
               <GhostButton
                 icon="cog"
-                label="Audio setup"
+                ariaLabel="Audio setup"
+                label={isLabelsCompact ? undefined : 'Audio setup'}
+                size={isLabelsCompact ? 'medium' : undefined}
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setAudioSetupMenuAnchor({ x: rect.left, y: rect.bottom + 4 });
@@ -1407,12 +1452,16 @@ function CanvasDemoContent() {
               />
               <GhostButton
                 icon="cloud"
-                label="Share audio"
+                ariaLabel="Share audio"
+                label={isLabelsCompact ? undefined : 'Share audio'}
+                size={isLabelsCompact ? 'medium' : undefined}
                 onClick={() => setIsShareDialogOpen(true)}
               />
               <GhostButton
                 icon="plugins"
-                label="Get effects"
+                ariaLabel="Get effects"
+                label={isLabelsCompact ? undefined : 'Get effects'}
+                size={isLabelsCompact ? 'medium' : undefined}
                 onClick={(e) => {
                   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                   setMarketplaceModal({ open: true, anchorRect: rect });
@@ -1424,32 +1473,55 @@ function CanvasDemoContent() {
         rightContent={
           activeMenuItem !== 'export' ? (
             <>
-              <span style={{ fontSize: '13px', color: baseTheme.foreground.text.primary, marginRight: '4px' }}>Workspace</span>
-              <ToolbarGroup ariaLabel="Workspace controls" tabGroupId="project-toolbar-workspace">
-                <Dropdown
-                  value={workspace}
-                  width="162px"
-                  options={[
-                    { value: 'music', label: 'Music' },
-                    { value: 'classic', label: 'Classic' },
-                    { value: 'modern', label: 'Modern' },
-                    { value: 'spectral-editing', label: 'Spectral editing' },
-                  ]}
-                  onChange={(next) => {
-                    const newWorkspace = next as Workspace;
-                    setWorkspace(newWorkspace);
-                    if (newWorkspace === 'spectral-editing') {
-                      dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: true });
-                    } else if (newWorkspace === 'classic') {
-                      dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: false });
-                    }
-                  }}
-                />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              {isWorkspaceCompact ? (
+                // Compact: workspace icon sits in the same 2px-gap cluster
+                // as undo/redo so all three ghost buttons read as one row
+                // with even spacing.
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <div ref={workspaceIconRef} style={{ display: 'inline-flex' }}>
+                    <GhostButton
+                      icon="workspace"
+                      ariaLabel="Workspace"
+                      size="medium"
+                      onClick={openWorkspaceMenu}
+                    />
+                  </div>
                   <GhostButton icon="undo" ariaLabel="Undo" size="medium" />
                   <GhostButton icon="redo" ariaLabel="Redo" size="medium" />
                 </div>
-              </ToolbarGroup>
+              ) : (
+                <>
+                  <span style={{ fontSize: '13px', color: baseTheme.foreground.text.primary, marginRight: '4px' }}>Workspace</span>
+                  <ToolbarGroup ariaLabel="Workspace controls" tabGroupId="project-toolbar-workspace">
+                    <Dropdown
+                      value={workspace}
+                      width="162px"
+                      options={[
+                        { value: 'music', label: 'Music' },
+                        { value: 'classic', label: 'Classic' },
+                        { value: 'modern', label: 'Modern' },
+                        { value: 'spectral-editing', label: 'Spectral editing' },
+                      ]}
+                      onChange={(next) => handleWorkspacePick(next as Workspace)}
+                    />
+                  </ToolbarGroup>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <GhostButton icon="undo" ariaLabel="Undo" size="medium" />
+                    <GhostButton icon="redo" ariaLabel="Redo" size="medium" />
+                  </div>
+                </>
+              )}
+              <ContextMenu
+                isOpen={workspaceMenuOpen}
+                onClose={() => setWorkspaceMenuOpen(false)}
+                x={workspaceMenuPos.x}
+                y={workspaceMenuPos.y}
+              >
+                <ContextMenuItem label="Music" checked={workspace === 'music'} onClick={() => handleWorkspacePick('music')} />
+                <ContextMenuItem label="Classic" checked={workspace === 'classic'} onClick={() => handleWorkspacePick('classic')} />
+                <ContextMenuItem label="Modern" checked={workspace === 'modern'} onClick={() => handleWorkspacePick('modern')} />
+                <ContextMenuItem label="Spectral editing" checked={workspace === 'spectral-editing'} onClick={() => handleWorkspacePick('spectral-editing')} />
+              </ContextMenu>
             </>
           ) : null
         }
