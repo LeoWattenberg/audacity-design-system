@@ -1,6 +1,6 @@
 {
   "name": "@dilsonspickles/components",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "UI component library for Audacity Design System",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "NODE_OPTIONS='--max-old-space-size=8192' tsup",
-    "dev": "tsup --watch",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192' tsup --watch",
     "lint": "echo 'No linting configured yet'",
     "test": "vitest run",
     "test:watch": "vitest",
