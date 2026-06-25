@@ -1230,11 +1230,21 @@ function CanvasDemoContent() {
           const clipIndex = (state.tracks[midiTrackIndex] as any).midiClips?.length > 0 ? 0 : null;
           dispatch({ type: 'SET_PIANO_ROLL_OPEN', payload: { open: true, trackIndex: midiTrackIndex, clipIndex } });
         } else {
-          // Auto-create an empty MIDI track and open piano roll on it
+          // Auto-create an empty MIDI track and open piano roll on it.
+          // Use max(id)+1 so the id doesn't collide after a middle track was deleted.
           const newTrackIndex = state.tracks.length;
+          const nextTrackId = Math.max(...state.tracks.map((t: any) => t.id), 0) + 1;
+          const midiNamePattern = /^MIDI (\d+)$/;
+          const usedMidiNumbers = state.tracks
+            .map((t: any) => {
+              const m = midiNamePattern.exec(t.name ?? '');
+              return m ? parseInt(m[1], 10) : NaN;
+            })
+            .filter((n: number) => !isNaN(n));
+          const nextMidiNumber = usedMidiNumbers.length === 0 ? 1 : Math.max(...usedMidiNumbers) + 1;
           const newTrack: any = {
-            id: newTrackIndex + 1,
-            name: `MIDI ${newTrackIndex + 1}`,
+            id: nextTrackId,
+            name: `MIDI ${nextMidiNumber}`,
             type: 'midi',
             height: 114,
             clips: [],

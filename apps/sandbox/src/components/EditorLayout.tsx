@@ -535,21 +535,29 @@ export function EditorLayout(props: EditorLayoutProps) {
             setRulerFlyout(null);
           }}
           onAddTrackType={(type: TrackType) => {
-            let trackName = `Track ${state.tracks.length + 1}`;
-            if (type === 'label') {
-              trackName = `Label ${state.tracks.length + 1}`;
-            } else if (type === 'stereo') {
-              trackName = `Stereo ${state.tracks.length + 1}`;
-            } else if (type === 'mono') {
-              trackName = `Mono ${state.tracks.length + 1}`;
-            } else if (type === 'midi') {
-              trackName = `MIDI ${state.tracks.length + 1}`;
-            }
+            // Use max(id)+1 — `length+1` collides after a middle track was deleted.
+            const nextTrackId = Math.max(...state.tracks.map((t: any) => t.id), 0) + 1;
+            const prefix =
+              type === 'label' ? 'Label' :
+              type === 'stereo' ? 'Stereo' :
+              type === 'mono' ? 'Mono' :
+              type === 'midi' ? 'MIDI' :
+              'Track';
+            // Suffix number is also derived from existing names, not length,
+            // so duplicates aren't introduced after deletes.
+            const namePattern = new RegExp(`^${prefix} (\\d+)$`);
+            const usedNumbers = state.tracks
+              .map((t: any) => {
+                const m = namePattern.exec(t.name ?? '');
+                return m ? parseInt(m[1], 10) : NaN;
+              })
+              .filter((n: number) => !isNaN(n));
+            const nextNameNumber = usedNumbers.length === 0 ? 1 : Math.max(...usedNumbers) + 1;
 
             const trackType = type === 'label' ? 'label' : type === 'midi' ? 'midi' : 'audio';
             const newTrack: any = {
-              id: state.tracks.length + 1,
-              name: trackName,
+              id: nextTrackId,
+              name: `${prefix} ${nextNameNumber}`,
               type: trackType,
               height: type === 'label' ? 76 : 114,
               ...(type === 'stereo' ? { channelSplitRatio: 0.5 } : {}),
