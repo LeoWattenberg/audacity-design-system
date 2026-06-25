@@ -157,6 +157,14 @@ export interface TracksState {
   /** Redo stack — snapshots that an UNDO has surfaced and a subsequent
    *  destructive action would clear. */
   future: Track[][];
+  /** Name of the coalesce group the previous undoable action belonged
+   *  to, e.g. 'clip-drag'. Lets the wrapper merge all the mousemoves of
+   *  a single drag into one undo entry. Null between gestures. */
+  lastUndoCoalesceGroup: string | null;
+  /** Wall-clock timestamp of the previous undoable action. Used with
+   *  COALESCE_TIMEOUT_MS to break two consecutive same-group gestures
+   *  apart when the user clearly paused between them. */
+  lastUndoTimestamp: number | null;
   selectedTrackIndices: number[];
   focusedTrackIndex: number | null;
   selectedLabelIds: string[]; // Array of selected label IDs (format: "trackIndex-labelId")
@@ -294,6 +302,8 @@ const initialState: TracksState = {
   tracks: [],
   past: [],
   future: [],
+  lastUndoCoalesceGroup: null,
+  lastUndoTimestamp: null,
   selectedTrackIndices: [],
   focusedTrackIndex: null,
   selectedLabelIds: [],
@@ -395,6 +405,31 @@ const UNDOABLE_ACTIONS = new Set<TracksAction['type']>([
   'RESIZE_MIDI_NOTE',
 ]);
 
+/** Actions that belong to a continuous gesture (e.g. clip drag fires
+ *  MOVE_CLIP × N then APPLY_CLIP_PLACEMENT on mouseup). All actions in
+ *  the same group are merged into a single undo entry — the snapshot
+ *  taken at the first action of the gesture — so Cmd+Z restores the
+ *  state from before the drag, not the state from one mousemove ago. */
+const UNDO_COALESCE_GROUP: Partial<Record<TracksAction['type'], string>> = {
+  MOVE_CLIP: 'clip-drag',
+  MOVE_SELECTED_CLIPS: 'clip-drag',
+  MOVE_SELECTED_CLIPS_TO_TRACK: 'clip-drag',
+  APPLY_CLIP_PLACEMENT: 'clip-drag',
+  TRIM_CLIP: 'clip-drag',
+  STRETCH_CLIP: 'clip-drag',
+  UPDATE_CLIP_ENVELOPE_POINTS: 'envelope-drag',
+  UPDATE_TRACK_HEIGHT: 'track-resize',
+  UPDATE_CHANNEL_SPLIT_RATIO: 'track-resize',
+  RESIZE_MIDI_NOTE: 'midi-resize',
+  UPDATE_MIDI_NOTE: 'midi-resize',
+};
+
+/** Two same-group actions farther apart than this are treated as
+ *  separate gestures and each get their own undo entry. Drag mousemoves
+ *  fire every ~16ms, so this comfortably keeps a drag coalesced but
+ *  any reaction-time pause breaks the group. */
+const COALESCE_TIMEOUT_MS = 250;
+
 // Reducer
 export function tracksReducer(state: TracksState, action: TracksAction): TracksState {
   // UNDO / REDO swap the `tracks` array against the past/future stacks
@@ -408,6 +443,8 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       tracks: previousTracks,
       past: state.past.slice(0, -1),
       future: [state.tracks, ...state.future].slice(0, MAX_UNDO_HISTORY),
+      lastUndoCoalesceGroup: null,
+      lastUndoTimestamp: null,
     };
   }
   if (action.type === 'REDO') {
@@ -418,6 +455,8 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       tracks: nextTracks,
       past: [...state.past, state.tracks].slice(-MAX_UNDO_HISTORY),
       future: state.future.slice(1),
+      lastUndoCoalesceGroup: null,
+      lastUndoTimestamp: null,
     };
   }
 
@@ -427,10 +466,30 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
   const before = state.tracks;
   const next = innerReducer(state, action);
   if (UNDOABLE_ACTIONS.has(action.type) && next.tracks !== before) {
+    const group = UNDO_COALESCE_GROUP[action.type] ?? null;
+    const now = Date.now();
+    const continuesGesture =
+      group !== null
+      && group === state.lastUndoCoalesceGroup
+      && state.lastUndoTimestamp !== null
+      && now - state.lastUndoTimestamp < COALESCE_TIMEOUT_MS;
+
+    if (continuesGesture) {
+      // Already snapshotted at the first action of this gesture; just
+      // track the new last-action info and clear redo.
+      return {
+        ...next,
+        future: [],
+        lastUndoCoalesceGroup: group,
+        lastUndoTimestamp: now,
+      };
+    }
     return {
       ...next,
       past: [...state.past, before].slice(-MAX_UNDO_HISTORY),
       future: [], // new edit invalidates any redo stack
+      lastUndoCoalesceGroup: group,
+      lastUndoTimestamp: now,
     };
   }
   return next;
@@ -480,6 +539,8 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         // so undo can't roll back across an unrelated project state.
         past: [],
         future: [],
+        lastUndoCoalesceGroup: null,
+        lastUndoTimestamp: null,
       };
     }
 
