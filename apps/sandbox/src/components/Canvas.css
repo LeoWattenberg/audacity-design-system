@@ -5,3 +5,10 @@
   padding-bottom: 2px; /* Add small bottom padding to prevent scroll sync issues */
   cursor: text; /* Text cursor for time selection in canvas */
 }
+
+/* Split-tool active: the inline `cursor` style on the container sets the
+   custom scissor cursor; this rule just makes sure child elements (clips,
+   ruler overlays) inherit it rather than reverting to their own. */
+.canvas-container--split-mode * {
+  cursor: inherit !important;
+}

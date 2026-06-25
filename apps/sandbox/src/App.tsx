@@ -1332,8 +1332,10 @@ function CanvasDemoContent() {
       }}
       envelopeMode={state.envelopeMode}
       spectrogramMode={state.spectrogramMode}
+      splitMode={state.splitMode}
       onToggleEnvelope={handleToggleEnvelope}
       onToggleSpectrogram={handleToggleSpectrogram}
+      onToggleSplit={() => dispatch({ type: 'SET_SPLIT_MODE', payload: !state.splitMode })}
       onZoomIn={zoomIn}
       onZoomOut={zoomOut}
       onZoomToSelection={zoomToSelection}

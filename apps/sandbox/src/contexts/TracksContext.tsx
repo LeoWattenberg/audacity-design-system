@@ -156,6 +156,7 @@ export interface TracksState {
   envelopeMode: boolean;
   envelopeAltMode: boolean;
   spectrogramMode: boolean;
+  splitMode: boolean; // S key: click-to-split tool
   timeSelection: TimeSelection | null;
   clipDurationIndicator: { startTime: number; endTime: number } | null; // Shows clip duration in ruler without affecting canvas
   playheadPosition: number; // in seconds
@@ -200,6 +201,7 @@ export type TracksAction =
   | { type: 'SET_SELECTED_TRACKS'; payload: number[] }
   | { type: 'SET_FOCUSED_TRACK'; payload: number | null }
   | { type: 'SET_ENVELOPE_MODE'; payload: boolean }
+  | { type: 'SET_SPLIT_MODE'; payload: boolean }
   | { type: 'SET_ENVELOPE_ALT_MODE'; payload: boolean }
   | { type: 'SET_SPECTROGRAM_MODE'; payload: boolean }
   | { type: 'SET_TIME_SELECTION'; payload: TimeSelection | null }
@@ -209,6 +211,7 @@ export type TracksAction =
   | { type: 'UPDATE_CHANNEL_SPLIT_RATIO'; payload: { index: number; ratio: number } }
   | { type: 'UPDATE_TRACK_VIEW'; payload: { index: number; viewMode: 'waveform' | 'spectrogram' | 'split' } }
   | { type: 'SELECT_CLIP'; payload: { trackIndex: number; clipId: number } }
+  | { type: 'SELECT_CLIPS'; payload: Array<{ trackIndex: number; clipId: number }> }
   | { type: 'SELECT_CLIP_RANGE'; payload: { trackIndex: number; clipId: number } }
   | { type: 'SELECT_TRACK'; payload: number }
   | { type: 'UPDATE_CLIP_ENVELOPE_POINTS'; payload: { trackIndex: number; clipId: number; envelopePoints: EnvelopePoint[] } }
@@ -286,6 +289,7 @@ const initialState: TracksState = {
   envelopeMode: false,
   envelopeAltMode: false,
   spectrogramMode: false,
+  splitMode: false,
   timeSelection: null,
   clipDurationIndicator: null,
   playheadPosition: 0,
@@ -429,6 +433,9 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         envelopeMode: action.payload,
         envelopeAltMode: action.payload ? false : state.envelopeAltMode
       };
+
+    case 'SET_SPLIT_MODE':
+      return { ...state, splitMode: action.payload };
 
     case 'SET_ENVELOPE_ALT_MODE':
       return {
@@ -588,6 +595,43 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
         timeSelection: newTimeSelection,
         clipDurationIndicator: newClipDurationIndicator,
         lastSelectedClip: { trackIndex, clipId },
+      };
+    }
+
+    case 'SELECT_CLIPS': {
+      // Multi-clip exclusive selection — sets `selected: true` on every
+      // clip in the payload and clears it on every other clip.
+      const wanted = new Set(action.payload.map(p => `${p.trackIndex}:${p.clipId}`));
+      const newTracks = state.tracks.map((track, tIndex) => ({
+        ...track,
+        clips: track.clips.map(clip => ({
+          ...clip,
+          selected: wanted.has(`${tIndex}:${clip.id}`),
+        })),
+        midiClips: track.midiClips?.map(clip => ({
+          ...clip,
+          selected: wanted.has(`${tIndex}:${clip.id}`),
+        })),
+      }));
+      const expandedTracks = expandSelectionToGroups(newTracks);
+      const expandedSelectedTrackIndices: number[] = [];
+      expandedTracks.forEach((t, idx) => {
+        if (t.clips.some(c => c.selected) || t.midiClips?.some(c => c.selected)) {
+          expandedSelectedTrackIndices.push(idx);
+        }
+      });
+      const last = action.payload[action.payload.length - 1];
+      return {
+        ...state,
+        tracks: expandedTracks,
+        selectedTrackIndices: expandedSelectedTrackIndices,
+        focusedTrackIndex: last ? last.trackIndex : state.focusedTrackIndex,
+        selectedLabelIds: [],
+        // Clear the time selection — multi-track selection has no single
+        // representative range to mirror in the ruler.
+        timeSelection: null,
+        clipDurationIndicator: null,
+        lastSelectedClip: last ? { trackIndex: last.trackIndex, clipId: last.clipId } : state.lastSelectedClip,
       };
     }
 

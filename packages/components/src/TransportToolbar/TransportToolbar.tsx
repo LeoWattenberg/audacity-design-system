@@ -70,8 +70,11 @@ export interface TransportToolbarProps {
   // Mode toggles
   envelopeMode: boolean;
   spectrogramMode: boolean;
+  /** Split-tool toggle (S key); when on, clicking a clip splits it. */
+  splitMode?: boolean;
   onToggleEnvelope: () => void;
   onToggleSpectrogram: () => void;
+  onToggleSplit?: () => void;
 
   // Zoom
   onZoomIn: () => void;
@@ -200,7 +203,7 @@ export function TransportToolbar({
   setLoopRegionEnabled, setLoopRegionStart, setLoopRegionEnd,
   timeSelection, bpm, onBpmChange, beatsPerMeasure, noteValue = 4, onTimeSignatureChange,
   onGripperMouseDown,
-  envelopeMode, spectrogramMode, onToggleEnvelope, onToggleSpectrogram,
+  envelopeMode, spectrogramMode, splitMode = false, onToggleEnvelope, onToggleSpectrogram, onToggleSplit,
   onZoomIn, onZoomOut, onZoomToSelection, onZoomToFitProject, onZoomToggle,
   currentTime, timeCodeFormat, onTimeCodeChange, onTimeCodeFormatChange,
   onShareClick, onExportAudioClick, onExportLoopRegionClick,
@@ -386,10 +389,11 @@ export function TransportToolbar({
                   isActive={envelopeMode}
                   onClick={onToggleEnvelope}
                 />
-                <ToolButton
+                <ToggleToolButton
                   icon="split"
                   ariaLabel="Cut / Split"
-                  onClick={() => {}}
+                  isActive={splitMode}
+                  onClick={onToggleSplit}
                 />
                 <ToggleToolButton
                   icon="spectrogram"
@@ -460,7 +464,7 @@ export function TransportToolbar({
                   isActive={envelopeMode}
                   onClick={onToggleEnvelope}
                 />
-                <ToolButton icon="split" ariaLabel="Cut / Split" onClick={() => {}} />
+                <ToggleToolButton icon="split" ariaLabel="Cut / Split" isActive={splitMode} onClick={onToggleSplit} />
                 <ToggleToolButton
                   icon="spectrogram"
                   ariaLabel="Spectral view"
@@ -491,7 +495,7 @@ export function TransportToolbar({
                   isActive={envelopeMode}
                   onClick={onToggleEnvelope}
                 />
-                <ToolButton icon="split" ariaLabel="Cut / Split" onClick={() => {}} />
+                <ToggleToolButton icon="split" ariaLabel="Cut / Split" isActive={splitMode} onClick={onToggleSplit} />
               </ToolbarButtonGroup>
 
               <ToolbarButtonGroup gap={2}>

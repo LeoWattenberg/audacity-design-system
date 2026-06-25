@@ -98,6 +98,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
 
       // --- Escape ---
       if (e.key === 'Escape') {
+        // Highest priority: bail out of split mode if active.
+        if (state.splitMode) {
+          e.preventDefault();
+          dispatch({ type: 'SET_SPLIT_MODE', payload: false });
+          return;
+        }
         if (state.timeSelection) {
           e.preventDefault();
           handleEscape(playheadDeps);
@@ -160,6 +166,18 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         if (!isTextInput) {
           e.preventDefault();
           handleEffectsToggle(transportDeps);
+          return;
+        }
+      }
+
+      // --- S: Toggle split tool (bare key, no modifiers) ---
+      if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        const target = e.target as HTMLElement;
+        const isTextInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+          target.getAttribute('role') === 'textbox' || target.getAttribute('contenteditable') === 'true';
+        if (!isTextInput) {
+          e.preventDefault();
+          dispatch({ type: 'SET_SPLIT_MODE', payload: !state.splitMode });
           return;
         }
       }
@@ -394,6 +412,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     state.selectedTrackIndices,
     state.timeSelection,
     state.focusedTrackIndex,
+    state.splitMode,
     controlPanelHasFocus,
     dispatch,
     isFlatNavigation,

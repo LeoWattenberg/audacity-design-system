@@ -17,6 +17,10 @@ import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '..
 import type { SnapOptions } from '../utils/snapToGrid';
 import './Canvas.css';
 
+// Cursor served from the sandbox `public/` so the URL is stable regardless
+// of bundler asset hashing or package-export resolution quirks.
+const splitCursorUrl = '/Split.png';
+
 export interface CanvasProps {
   /**
    * Width of the canvas in pixels
@@ -187,7 +191,7 @@ export function Canvas({
 }: CanvasProps) {
   const { theme } = useTheme();
   const { preferences } = usePreferences();
-  const { tracks, selectedTrackIndices, selectedLabelIds, timeSelection, spectrogramMode, envelopeMode, focusedTrackIndex } = useTracksState();
+  const { tracks, selectedTrackIndices, selectedLabelIds, timeSelection, spectrogramMode, envelopeMode, focusedTrackIndex, splitMode } = useTracksState();
   const { spectralSelection, setSpectralSelection } = useSpectralSelection();
   const dispatch = useTracksDispatch();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -260,7 +264,14 @@ export function Canvas({
     topGap: TOP_GAP,
     trackGap: TRACK_GAP,
     defaultTrackHeight: DEFAULT_TRACK_HEIGHT,
-    onDragStatusChange: setIsDraggingClips,
+    onDragStatusChange: (isDragging) => {
+      setIsDraggingClips(isDragging);
+      // Exit split mode the moment a clip drag starts. Split's job is to
+      // cut; once you're moving a clip the tool should be done.
+      if (isDragging && splitMode) {
+        dispatch({ type: 'SET_SPLIT_MODE', payload: false });
+      }
+    },
     snapEnabled,
     snapOptions,
   });
@@ -309,6 +320,82 @@ export function Canvas({
   // Calculate total height based on all tracks + 2px gaps (top + between tracks)
   const tracksHeight = tracks.reduce((sum, track) => sum + (track.height || DEFAULT_TRACK_HEIGHT), 0) + TOP_GAP + (TRACK_GAP * (tracks.length - 1));
   const totalHeight = tracksHeight;
+
+  // --- Split tool state ---
+  // Tracks the live cursor position while the split tool is active. Only
+  // set when the cursor is hovering over a clip's body (below the clip
+  // header). When null, both the cursor swap and preview line stay off so
+  // the user knows there's nothing to split at the current position.
+  const [splitHover, setSplitHover] = useState<{ x: number; trackIndex: number; shiftKey: boolean } | null>(null);
+
+  // Cache the most recent in-canvas mouse position so toggling split mode
+  // can immediately compute splitHover from where the cursor is at toggle
+  // time — without waiting for the user to wiggle the mouse.
+  const lastMouseRef = useRef<{ x: number; y: number; shiftKey: boolean } | null>(null);
+
+  // Shift state has to track keydown/keyup separately because the user
+  // may press/release Shift without moving the mouse. Without this the
+  // preview line wouldn't switch between single-track and full-canvas
+  // until the next mouse wiggle.
+  useEffect(() => {
+    if (!splitMode) return;
+    const sync = (e: KeyboardEvent) => {
+      if (e.key !== 'Shift') return;
+      setSplitHover((prev) => (prev && prev.shiftKey !== e.shiftKey ? { ...prev, shiftKey: e.shiftKey } : prev));
+    };
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+    };
+  }, [splitMode]);
+
+  // Resolve which track Y belongs to. Returns null when outside any track row.
+  const resolveTrackIndexFromY = React.useCallback((y: number): number | null => {
+    let cursor = TOP_GAP;
+    for (let i = 0; i < tracks.length; i++) {
+      const h = tracks[i].height || DEFAULT_TRACK_HEIGHT;
+      if (y >= cursor && y < cursor + h) return i;
+      cursor += h + TRACK_GAP;
+    }
+    return null;
+  }, [tracks]);
+
+  // Build a split mutation for any clip on `trackIndex` that strictly
+  // contains `time` (not at clip edges, so we don't produce zero-width
+  // segments). Returns null when there's nothing to split.
+  const buildSplitForTrack = React.useCallback((trackIndex: number, time: number) => {
+    const track = tracks[trackIndex];
+    if (!track) return null;
+    const hit = track.clips.find((c) => {
+      const start = c.start;
+      const end = c.start + c.duration;
+      return time > start + 0.0001 && time < end - 0.0001;
+    });
+    if (!hit) return null;
+    return { type: 'split' as const, clipId: hit.id, trackIndex, leftEnd: time, rightStart: time };
+  }, [tracks]);
+
+  // When split mode is enabled, immediately compute hover from the last
+  // known cursor position so the custom cursor / preview line appear
+  // without waiting for the next mousemove. Clear hover on disable.
+  useEffect(() => {
+    if (!splitMode) {
+      setSplitHover(null);
+      return;
+    }
+    const last = lastMouseRef.current;
+    if (!last) return;
+    const trackIndex = resolveTrackIndexFromY(last.y);
+    if (trackIndex === null) return;
+    const time = (last.x - leftPadding) / pixelsPerSecond;
+    const trackTop = calculateTrackYOffset(trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT);
+    const bodyTop = trackTop + CLIP_HEADER_HEIGHT;
+    if (last.y >= bodyTop && buildSplitForTrack(trackIndex, time)) {
+      setSplitHover({ x: last.x, trackIndex, shiftKey: last.shiftKey });
+    }
+  }, [splitMode, resolveTrackIndexFromY, buildSplitForTrack, leftPadding, pixelsPerSecond, tracks]);
 
   // Notify parent when height changes
   useEffect(() => {
@@ -426,7 +513,12 @@ export function Canvas({
     TRACK_GAP,
     DEFAULT_TRACK_HEIGHT,
     CLIP_HEADER_HEIGHT,
-    onDragStart: () => setIsDraggingClips(true),
+    onDragStart: () => {
+      setIsDraggingClips(true);
+      // Exit split mode the moment a header drag begins — once you're
+      // moving a clip the scissor tool's job is over.
+      if (splitMode) dispatch({ type: 'SET_SPLIT_MODE', payload: false });
+    },
   });
 
   // Calculate grid line positions — three tiers in beats-measures mode (measure/beat/subdivision),
@@ -510,7 +602,37 @@ export function Canvas({
   }, [bpm, beatsPerMeasure, timeFormat, pixelsPerSecond, width]);
 
   return (
-    <div className="canvas-container" style={{ backgroundColor: bgColor, height: `${totalHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: 'text' } as React.CSSProperties}>
+    <div className={`canvas-container${splitMode && splitHover ? ' canvas-container--split-mode' : ''}`} style={{ backgroundColor: bgColor, height: `${totalHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: splitMode && splitHover ? `url(${splitCursorUrl}) 14 10, crosshair` : 'text' } as React.CSSProperties}>
+      {/* Split-tool preview line. Bare hover shows it spanning just the
+          hovered track; Shift held extends it across all tracks. */}
+      {splitMode && splitHover && (
+        (() => {
+          const fullSpan = splitHover.shiftKey;
+          // Shift extends the line to the full canvas height (top:0 →
+          // bottom:0) so it visibly reaches past the last track into the
+          // empty area below. Without Shift the line is constrained to
+          // the hovered track's body.
+          const positional: React.CSSProperties = fullSpan
+            ? { top: 0, bottom: 0 }
+            : {
+                top: `${calculateTrackYOffset(splitHover.trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT)}px`,
+                height: `${tracks[splitHover.trackIndex].height || DEFAULT_TRACK_HEIGHT}px`,
+              };
+          return (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${splitHover.x}px`,
+                ...positional,
+                width: '1px',
+                background: theme.border.focus,
+                pointerEvents: 'none',
+                zIndex: 100,
+              }}
+            />
+          );
+        })()
+      )}
       {/* Beat/measure grid — rendered behind tracks */}
       {(gridLines.length > 0 || measureBands.length > 0) && (
         <svg
@@ -538,12 +660,138 @@ export function Canvas({
       )}
       <div
         ref={containerRef}
+        onMouseDownCapture={(e) => {
+          // Split mode runs in the capture phase so it beats clip-level
+          // mousedown handlers (drag start, selection) that would otherwise
+          // initiate a drag and clear our just-dispatched selection on
+          // mouseup. Outside split mode, this capture handler does nothing
+          // and the regular bubble-phase onMouseDown runs.
+          if (splitMode && e.button === 0) {
+            const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const time = (x - leftPadding) / pixelsPerSecond;
+            const ti = resolveTrackIndexFromY(y);
+            const isOverBody = ti !== null && y >= calculateTrackYOffset(ti, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT) + CLIP_HEADER_HEIGHT;
+            if (!isOverBody) return;
+            const mutations = e.shiftKey
+              ? tracks.map((_, i) => buildSplitForTrack(i, time)).filter(Boolean)
+              : (() => {
+                  const m = buildSplitForTrack(ti, time);
+                  return m ? [m] : [];
+                })();
+            if (mutations.length > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              dispatch({
+                type: 'APPLY_CLIP_PLACEMENT',
+                payload: { placements: [], mutations: mutations as any },
+              });
+              // Select every left segment — the left side keeps the
+              // original clipId, so the mutation's clipId points to it.
+              dispatch({
+                type: 'SELECT_CLIPS',
+                payload: (mutations as any[]).map((m) => ({
+                  trackIndex: m.trackIndex,
+                  clipId: m.clipId,
+                })),
+              });
+            }
+          }
+        }}
         onMouseDown={(e) => {
           lastMouseButtonRef.current = e.button;
+          // --- Split tool intercept (legacy bubble path; kept as a no-op
+          //     fallback — the capture handler above takes care of it). ---
+          if (splitMode && e.button === 0) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const time = (x - leftPadding) / pixelsPerSecond;
+            const ti = resolveTrackIndexFromY(y);
+            // Click must land on a clip BODY (below the header) — same
+            // rule the hover preview uses. Header clicks fall through to
+            // the normal handler so the menu / focus behaviour still
+            // works while split mode is active.
+            const isOverBody = ti !== null && y >= calculateTrackYOffset(ti, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT) + CLIP_HEADER_HEIGHT;
+            if (!isOverBody) {
+              handleClipMouseDown(e);
+              return;
+            }
+            const mutations = e.shiftKey
+              ? tracks.map((_, i) => buildSplitForTrack(i, time)).filter(Boolean)
+              : (() => {
+                  const m = buildSplitForTrack(ti, time);
+                  return m ? [m] : [];
+                })();
+            if (mutations.length > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              dispatch({
+                type: 'APPLY_CLIP_PLACEMENT',
+                payload: { placements: [], mutations: mutations as any },
+              });
+              // Select the LEFT segment of the split that happened on the
+              // user-targeted track (the left segment keeps the original
+              // clipId). With Shift held this picks the clip on the row
+              // they were hovering, leaving the other tracks unselected.
+              const primary = (mutations as any[]).find((m) => m.trackIndex === ti) ?? (mutations[0] as any);
+              if (primary) {
+                dispatch({
+                  type: 'SELECT_CLIP',
+                  payload: { trackIndex: primary.trackIndex, clipId: primary.clipId },
+                });
+              }
+            }
+            return;
+          }
           handleClipMouseDown(e);
         }}
-        onMouseMove={containerProps.onMouseMove}
-        onClick={handleContainerClick}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          lastMouseRef.current = { x: mx, y: my, shiftKey: e.shiftKey };
+          if (splitMode) {
+            const trackIndex = resolveTrackIndexFromY(my);
+            const time = (mx - leftPadding) / pixelsPerSecond;
+            // Only treat as a valid hover when the cursor is over a clip's
+            // BODY (not the header) on the resolved track. Outside of a
+            // clip — gaps, headers, empty tracks — we clear hover so the
+            // cursor reverts to default and no preview line shows.
+            let overClipBody = false;
+            if (trackIndex !== null) {
+              const trackTop = calculateTrackYOffset(trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT);
+              const bodyTop = trackTop + CLIP_HEADER_HEIGHT;
+              if (my >= bodyTop) {
+                overClipBody = !!buildSplitForTrack(trackIndex, time);
+              }
+            }
+            if (overClipBody && trackIndex !== null) {
+              setSplitHover({ x: mx, trackIndex, shiftKey: e.shiftKey });
+            } else if (splitHover) {
+              setSplitHover(null);
+            }
+          } else if (splitHover) {
+            setSplitHover(null);
+          }
+          containerProps.onMouseMove?.(e);
+        }}
+        onMouseLeave={() => { if (splitHover) setSplitHover(null); lastMouseRef.current = null; }}
+        onClickCapture={(e) => {
+          // Split mode: swallow the click at capture so neither child
+          // clip-level click handlers nor the container's blank-area
+          // click handler can clear the selection that mousedown just
+          // dispatched.
+          if (splitMode) {
+            e.stopPropagation();
+            e.preventDefault();
+          }
+        }}
+        onClick={(e) => {
+          if (splitMode) return;
+          handleContainerClick(e);
+        }}
         onContextMenu={(e) => {
           // Always prevent default browser context menu
           e.preventDefault();
