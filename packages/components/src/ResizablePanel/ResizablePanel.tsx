@@ -75,8 +75,12 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
   // Mirror of `height` for handlers that need the latest value without
   // re-subscribing (the mouseup listener captures `height` once when it
   // installs, so without this ref it would commit the wrong value).
+  // Synced via effect rather than during render — writing refs during
+  // render is unsafe under React 18 concurrent rendering.
   const latestHeightRef = useRef(height);
-  latestHeightRef.current = height;
+  useEffect(() => {
+    latestHeightRef.current = height;
+  }, [height]);
   // Tracks a running release-spring animation so a new resize gesture
   // cancels it cleanly.
   const snapAnimationRef = useRef<number | null>(null);
