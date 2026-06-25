@@ -77,6 +77,12 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
   // handlers (event-handler writes to refs are safe), so the mouseup
   // listener never picks up a stale value when it evaluates snaps.
   const latestHeightRef = useRef(height);
+  // Frozen "home" height — captured on first mount. The parent passes
+  // a live track height as `initialHeight` (because the panel is
+  // re-rendered as state.tracks[i].height changes), but for the snap
+  // target we want the original default, otherwise the home snap is
+  // always equal to the released value and the spring never fires.
+  const homeHeightRef = useRef(initialHeight);
   // Tracks a running release-spring animation so a new resize gesture
   // cancels it cleanly.
   const snapAnimationRef = useRef<number | null>(null);
@@ -93,8 +99,6 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
    *  bounce. Calls onHeightChange on each frame and onResizeEnd once
    *  the spring settles. */
   const springToTarget = (from: number, target: number) => {
-    // eslint-disable-next-line no-console
-    console.log('[ResizablePanel] spring start', { from, target });
     const SPRING_DURATION_MS = 280;
     const distance = target - from;
     const startTime = performance.now();
@@ -159,7 +163,7 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
       //  • 102 — effect button just starts to fit on audio tracks
       //  • initialHeight — the track's default ("home") height
       const SNAP_CATCH_WINDOW = 18;
-      const snapTargets = [71, 102, initialHeight];
+      const snapTargets = [71, 102, homeHeightRef.current];
       let nearest: number | null = null;
       let nearestDist = SNAP_CATCH_WINDOW;
       for (const target of snapTargets) {
@@ -169,9 +173,6 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
           nearestDist = dist;
         }
       }
-
-      // eslint-disable-next-line no-console
-      console.log('[ResizablePanel] mouseup', { released, snapTargets, nearest, willSpring: nearest !== null && nearest !== released });
 
       if (nearest !== null && nearest !== released) {
         springToTarget(released, nearest);
