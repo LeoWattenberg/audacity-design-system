@@ -73,14 +73,10 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
   const [resizeCursor, setResizeCursor] = useState(false);
   const resizeStartRef = useRef<{ y: number; height: number; edge: 'top' | 'bottom' } | null>(null);
   // Mirror of `height` for handlers that need the latest value without
-  // re-subscribing (the mouseup listener captures `height` once when it
-  // installs, so without this ref it would commit the wrong value).
-  // Synced via effect rather than during render — writing refs during
-  // render is unsafe under React 18 concurrent rendering.
+  // re-subscribing. Updated synchronously inside the drag and spring
+  // handlers (event-handler writes to refs are safe), so the mouseup
+  // listener never picks up a stale value when it evaluates snaps.
   const latestHeightRef = useRef(height);
-  useEffect(() => {
-    latestHeightRef.current = height;
-  }, [height]);
   // Tracks a running release-spring animation so a new resize gesture
   // cancels it cleanly.
   const snapAnimationRef = useRef<number | null>(null);
@@ -108,11 +104,13 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
       // decays to ~1 by t=1 with a tiny residual wobble.
       const eased = t >= 1 ? 1 : 1 - Math.exp(-5 * t) * Math.cos(10 * t);
       const current = from + distance * eased;
+      latestHeightRef.current = current;
       setHeight(current);
       onHeightChange?.(current);
       if (t < 1) {
         snapAnimationRef.current = requestAnimationFrame(tick);
       } else {
+        latestHeightRef.current = target;
         setHeight(target);
         onHeightChange?.(target);
         onResizeEnd?.(target);
@@ -143,6 +141,7 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
         // No snap-pull during the drag — the track follows the cursor
         // freely. Snap is deferred to mouseup and animated as a spring
         // (see handleDocumentMouseUp) for a "bounce home" feel.
+        latestHeightRef.current = newHeight;
         setHeight(newHeight);
         onHeightChange?.(newHeight);
       }
