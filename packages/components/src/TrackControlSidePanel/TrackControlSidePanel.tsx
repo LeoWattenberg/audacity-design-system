@@ -286,6 +286,7 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
               style={undefined}
               isFirstPanel={index === 0}
               onHeightChange={(newHeight) => onTrackResize?.(index, newHeight)}
+              onResizeEnd={(finalHeight) => onTrackResize?.(index, finalHeight)}
             >
               {cloneElement(child, {
                 ...child.props,

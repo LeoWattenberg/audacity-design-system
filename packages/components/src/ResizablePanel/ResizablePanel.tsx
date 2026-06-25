@@ -35,9 +35,11 @@ export interface ResizablePanelProps {
    */
   onResizeStart?: () => void;
   /**
-   * Callback fired when resize ends
+   * Callback fired when resize ends. Receives the final committed
+   * height so consumers can dispatch the global state update once per
+   * gesture instead of on every mousemove.
    */
-  onResizeEnd?: () => void;
+  onResizeEnd?: (finalHeight: number) => void;
   /**
    * Additional CSS class names
    */
@@ -70,6 +72,11 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [resizeCursor, setResizeCursor] = useState(false);
   const resizeStartRef = useRef<{ y: number; height: number; edge: 'top' | 'bottom' } | null>(null);
+  // Mirror of `height` for handlers that need the latest value without
+  // re-subscribing (the mouseup listener captures `height` once when it
+  // installs, so without this ref it would commit the wrong value).
+  const latestHeightRef = useRef(height);
+  latestHeightRef.current = height;
 
   // Add document-level event listeners for dragging beyond component bounds
   useEffect(() => {
@@ -123,7 +130,7 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
     const handleDocumentMouseUp = () => {
       setIsResizing(false);
       resizeStartRef.current = null;
-      onResizeEnd?.();
+      onResizeEnd?.(latestHeightRef.current);
     };
 
     document.addEventListener('mousemove', handleDocumentMouseMove);

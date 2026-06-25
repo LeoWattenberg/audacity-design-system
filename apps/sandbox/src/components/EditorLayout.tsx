@@ -531,7 +531,15 @@ export function EditorLayout(props: EditorLayoutProps) {
           onScroll={onTrackHeaderScroll}
           bufferSpace={scrollBuffer}
           onTrackResize={(trackIndex, height) => {
-            dispatch({ type: 'UPDATE_TRACK_HEIGHT', payload: { index: trackIndex, height } });
+            // Mark the dispatch as a transition so React deprioritises
+            // it against the user's mouse input. The expensive
+            // ClipBody waveform redraws kicked off by this dispatch
+            // can then yield to the next mousemove, keeping the drag
+            // smooth. The final commit (from onResizeEnd) lands as a
+            // normal update so the canvas is correct on release.
+            React.startTransition(() => {
+              dispatch({ type: 'UPDATE_TRACK_HEIGHT', payload: { index: trackIndex, height } });
+            });
             setRulerFlyout(null);
           }}
           onAddTrackType={(type: TrackType) => {
