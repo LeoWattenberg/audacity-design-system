@@ -167,21 +167,34 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
       resizeStartRef.current = null;
       const released = latestHeightRef.current;
 
-      // Pick the closest snap target inside the catch window. Targets:
-      //  • 71  — slider just starts to fit
-      //  • 112 — comfortable height with the effect button fully visible
-      //          (the button first fits at 102; 112 gives 10px of breathing
-      //          room so it isn't pinned right against the bottom edge).
-      //  • initialHeight — the track's default ("home") height
+      // 71 (slider just fits) and 112 (effect button has breathing
+      // room) bracket a forbidden range — there's no valid layout
+      // between them, because the slider is visible without the
+      // effect button having any space. On release inside that range
+      // we always spring out to whichever side is closer.
+      //
+      // Outside the forbidden range, the regular closest-within-window
+      // logic applies for 71, 112, and the home (initialHeight at mount).
+      const FORBIDDEN_LOW = 71;
+      const FORBIDDEN_HIGH = 112;
       const SNAP_CATCH_WINDOW = 18;
-      const snapTargets = [71, 112, homeHeightRef.current];
       let nearest: number | null = null;
-      let nearestDist = SNAP_CATCH_WINDOW;
-      for (const target of snapTargets) {
-        const dist = Math.abs(released - target);
-        if (dist < nearestDist) {
-          nearest = target;
-          nearestDist = dist;
+
+      if (released > FORBIDDEN_LOW && released < FORBIDDEN_HIGH) {
+        nearest =
+          released - FORBIDDEN_LOW <= FORBIDDEN_HIGH - released
+            ? FORBIDDEN_LOW
+            : FORBIDDEN_HIGH;
+      } else {
+        let nearestDist = SNAP_CATCH_WINDOW;
+        // Home is last so it wins ties against 112 — releasing right
+        // next to the default height should rest at home, not at 112.
+        for (const target of [FORBIDDEN_LOW, FORBIDDEN_HIGH, homeHeightRef.current]) {
+          const dist = Math.abs(released - target);
+          if (dist <= nearestDist) {
+            nearest = target;
+            nearestDist = dist;
+          }
         }
       }
 
