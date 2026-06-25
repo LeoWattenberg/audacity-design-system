@@ -799,19 +799,6 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         })),
       }));
 
-      // Find the selected clip to create time selection (ruler-only, no canvas overlay)
-      const selectedClip = state.tracks[trackIndex]?.clips.find(c => c.id === clipId)
-        || state.tracks[trackIndex]?.midiClips?.find(c => c.id === clipId);
-      const newTimeSelection = selectedClip ? {
-        startTime: selectedClip.start,
-        endTime: selectedClip.start + selectedClip.duration,
-        renderOnCanvas: false,
-      } : null;
-      const newClipDurationIndicator = selectedClip ? {
-        startTime: selectedClip.start,
-        endTime: selectedClip.start + selectedClip.duration,
-      } : null;
-
       const expandedTracks = expandSelectionToGroups(newTracks);
 
       // Derive selectedTrackIndices from the expanded selection (groups may span tracks).
@@ -828,8 +815,8 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         selectedTrackIndices: expandedSelectedTrackIndices.length > 0 ? expandedSelectedTrackIndices : [trackIndex],
         focusedTrackIndex: trackIndex,
         selectedLabelIds: [],
-        timeSelection: newTimeSelection,
-        clipDurationIndicator: newClipDurationIndicator,
+        timeSelection: null,
+        clipDurationIndicator: null,
         lastSelectedClip: { trackIndex, clipId },
       };
     }
@@ -1237,32 +1224,6 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         .filter(t => t.hasSelection)
         .map(t => t.idx);
 
-      // Count total selected clips
-      const selectedClipsCount = expandedTracks.reduce(
-        (count, track) => count + track.clips.filter(c => c.selected).length + (track.midiClips?.filter(c => c.selected).length || 0),
-        0
-      );
-
-      // When exactly 1 clip is selected, create a ruler-only time selection (no canvas overlay)
-      let newTimeSelection: TimeSelection | null = null;
-      let newClipDurationIndicator: { startTime: number; endTime: number } | null = null;
-      if (selectedClipsCount === 1) {
-        const selectedClip = expandedTracks
-          .flatMap(track => [...track.clips, ...(track.midiClips || [])])
-          .find(clip => clip.selected);
-        if (selectedClip) {
-          newTimeSelection = {
-            startTime: selectedClip.start,
-            endTime: selectedClip.start + selectedClip.duration,
-            renderOnCanvas: false,
-          };
-          newClipDurationIndicator = {
-            startTime: selectedClip.start,
-            endTime: selectedClip.start + selectedClip.duration,
-          };
-        }
-      }
-
       // Determine if the clip was selected (not deselected)
       const wasClipSelected = (expandedTracks[trackIndex]?.clips.find(c => c.id === clipId)?.selected
         || expandedTracks[trackIndex]?.midiClips?.find(c => c.id === clipId)?.selected) ?? false;
@@ -1272,8 +1233,8 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         tracks: expandedTracks,
         selectedTrackIndices: tracksWithSelection,
         selectedLabelIds: [], // Clear label selection when toggling clip
-        timeSelection: newTimeSelection,
-        clipDurationIndicator: newClipDurationIndicator,
+        timeSelection: null,
+        clipDurationIndicator: null,
         // Update lastSelectedClip only if the clip was selected (not deselected)
         lastSelectedClip: wasClipSelected ? { trackIndex, clipId } : state.lastSelectedClip,
       };
