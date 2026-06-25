@@ -96,31 +96,33 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
           newHeight = Math.min(maxHeight, newHeight);
         }
 
-        // Soft snaps. The default-height snap uses a slightly wider
-        // window than the feature-boundary snaps so two adjacent targets
-        // (e.g. 102 and the 114 default) don't overlap. Closest target
-        // wins when multiple are within range.
-        const SNAP_THRESHOLD_DEFAULT = 6;
-        const SNAP_THRESHOLD_FEATURE = 4;
-        // 102: effect button just starts to fit on audio tracks.
-        // 71: track-level slider just starts to fit.
-        const featureSnapTargets = [71, 102];
-        let bestTarget: number | null = null;
-        let bestDist = Infinity;
-        if (Math.abs(newHeight - initialHeight) <= SNAP_THRESHOLD_DEFAULT) {
-          bestTarget = initialHeight;
-          bestDist = Math.abs(newHeight - initialHeight);
-        }
-        for (const target of featureSnapTargets) {
+        // Sticky snap targets — the value is *pulled* toward the
+        // closest target with a quadratic easing inside a 12px window.
+        // At the edge of the window the pull is zero (no jump entering
+        // or leaving), and it ramps up smoothly toward the centre.
+        // That gives a "magnetic" feel without the visible 1–3px snap
+        // jumps a hard threshold would produce.
+        //
+        // Targets:
+        //  • 71  — slider just starts to fit
+        //  • 102 — effect button just starts to fit on audio tracks
+        //  • initialHeight — the track's default ("home") height
+        const SNAP_WINDOW = 12;
+        const snapTargets = [71, 102, initialHeight];
+        let strongestPull = 0;
+        let pullTarget = newHeight;
+        for (const target of snapTargets) {
           const dist = Math.abs(newHeight - target);
-          if (dist <= SNAP_THRESHOLD_FEATURE && dist < bestDist) {
-            bestTarget = target;
-            bestDist = dist;
+          if (dist < SNAP_WINDOW) {
+            const ratio = 1 - dist / SNAP_WINDOW; // 0 at edge → 1 at centre
+            const pull = ratio * ratio; // ease-in — soft at edges, firm at centre
+            if (pull > strongestPull) {
+              strongestPull = pull;
+              pullTarget = target;
+            }
           }
         }
-        if (bestTarget !== null) {
-          newHeight = bestTarget;
-        }
+        newHeight = newHeight + (pullTarget - newHeight) * strongestPull;
 
         setHeight(newHeight);
         onHeightChange?.(newHeight);
