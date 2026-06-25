@@ -211,6 +211,7 @@ export type TracksAction =
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'SET_TRACKS'; payload: Track[] }
+  | { type: 'REPLACE_TRACKS_EDIT'; payload: Track[] }
   | { type: 'ADD_TRACK'; payload: Track }
   | { type: 'UPDATE_TRACK'; payload: { index: number; track: Partial<Track> } }
   | { type: 'DELETE_TRACK'; payload: number }
@@ -365,6 +366,8 @@ const MAX_UNDO_HISTORY = 50;
  *  focus, mode toggles, playhead, time selection, etc.) are intentionally
  *  excluded so the undo stack only carries meaningful edits. */
 const UNDOABLE_ACTIONS = new Set<TracksAction['type']>([
+  // Bulk
+  'REPLACE_TRACKS_EDIT',
   // Track lifecycle
   'ADD_TRACK',
   'UPDATE_TRACK',
@@ -556,6 +559,38 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         future: [],
         lastUndoCoalesceGroup: null,
         lastUndoTimestamp: null,
+      };
+    }
+
+    case 'REPLACE_TRACKS_EDIT': {
+      // Bulk replacement that IS a user-initiated edit (e.g. clipboard
+      // cut/paste). Same coloring/dedup as SET_TRACKS but the wrapper
+      // snapshots into `past` so Cmd+Z reverses the operation.
+      const seenIds = new Set<number>();
+      let runningMaxId = action.payload.reduce(
+        (max, t) => (t.id > max ? t.id : max),
+        0,
+      );
+      const dedupedTracks = action.payload.map((track) => {
+        if (!seenIds.has(track.id)) {
+          seenIds.add(track.id);
+          return track;
+        }
+        runningMaxId += 1;
+        seenIds.add(runningMaxId);
+        return { ...track, id: runningMaxId };
+      });
+      let colorIdx = state.nextTrackColorIndex;
+      const coloredTracks = dedupedTracks.map((track) => {
+        if (track.color) return track;
+        const color = TRACK_COLOR_PALETTE[colorIdx % TRACK_COLOR_PALETTE.length];
+        colorIdx++;
+        return { ...track, color };
+      });
+      return {
+        ...state,
+        tracks: coloredTracks,
+        nextTrackColorIndex: colorIdx,
       };
     }
 

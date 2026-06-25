@@ -90,7 +90,7 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
         selectedTracks.length > 0 ? selectedTracks : state.tracks.map((_, i) => i)
       );
 
-      dispatch({ type: 'SET_TRACKS', payload: tracksAfterCut });
+      dispatch({ type: 'REPLACE_TRACKS_EDIT', payload: tracksAfterCut });
       dispatch({ type: 'SET_TIME_SELECTION', payload: null });
     }
     return;
@@ -117,7 +117,7 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
       ),
     }));
 
-    dispatch({ type: 'SET_TRACKS', payload: tracksAfterCut });
+    dispatch({ type: 'REPLACE_TRACKS_EDIT', payload: tracksAfterCut });
   }
 }
 
@@ -226,7 +226,7 @@ export function handlePaste(deps: ClipboardHandlerDeps): void {
     };
   });
 
-  dispatch({ type: 'SET_TRACKS', payload: updatedTracks });
+  dispatch({ type: 'REPLACE_TRACKS_EDIT', payload: updatedTracks });
 
   // Copy audio buffers for pasted clips so they play back correctly
   const audioManager = audioManagerRef.current;
