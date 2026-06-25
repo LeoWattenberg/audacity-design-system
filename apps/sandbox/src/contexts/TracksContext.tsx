@@ -355,21 +355,44 @@ const MAX_UNDO_HISTORY = 50;
  *  focus, mode toggles, playhead, time selection, etc.) are intentionally
  *  excluded so the undo stack only carries meaningful edits. */
 const UNDOABLE_ACTIONS = new Set<TracksAction['type']>([
+  // Track lifecycle
   'ADD_TRACK',
   'UPDATE_TRACK',
   'DELETE_TRACK',
   'DELETE_TRACKS',
+  'MOVE_TRACK',
+  'UPDATE_TRACK_HEIGHT',
+  'UPDATE_CHANNEL_SPLIT_RATIO',
+  // Clip lifecycle / edits
   'ADD_CLIP',
   'DELETE_CLIP',
   'UPDATE_CLIP',
   'APPLY_CLIP_PLACEMENT',
   'DELETE_TIME_RANGE',
+  'MOVE_CLIP',
+  'TRIM_CLIP',
+  'STRETCH_CLIP',
+  'MOVE_SELECTED_CLIPS',
+  'MOVE_SELECTED_CLIPS_TO_TRACK',
+  'GROUP_SELECTED_CLIPS',
+  'UNGROUP_CLIPS',
+  // Envelope
   'UPDATE_CLIP_ENVELOPE_POINTS',
+  // Labels
   'ADD_LABEL',
   'UPDATE_LABEL',
+  // Effects
   'ADD_TRACK_EFFECT',
   'REMOVE_TRACK_EFFECT',
   'UPDATE_TRACK_EFFECT',
+  'REORDER_TRACK_EFFECTS',
+  'TOGGLE_ALL_TRACK_EFFECTS',
+  // MIDI
+  'ADD_MIDI_CLIP',
+  'ADD_MIDI_NOTE',
+  'DELETE_MIDI_NOTES',
+  'UPDATE_MIDI_NOTE',
+  'RESIZE_MIDI_NOTE',
 ]);
 
 // Reducer
