@@ -169,10 +169,12 @@ export const ResizablePanel: React.FC<ResizablePanelProps> = ({
 
       // Pick the closest snap target inside the catch window. Targets:
       //  • 71  — slider just starts to fit
-      //  • 102 — effect button just starts to fit on audio tracks
+      //  • 112 — comfortable height with the effect button fully visible
+      //          (the button first fits at 102; 112 gives 10px of breathing
+      //          room so it isn't pinned right against the bottom edge).
       //  • initialHeight — the track's default ("home") height
       const SNAP_CATCH_WINDOW = 18;
-      const snapTargets = [71, 102, homeHeightRef.current];
+      const snapTargets = [71, 112, homeHeightRef.current];
       let nearest: number | null = null;
       let nearestDist = SNAP_CATCH_WINDOW;
       for (const target of snapTargets) {
