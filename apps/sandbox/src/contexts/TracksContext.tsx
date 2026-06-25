@@ -414,7 +414,6 @@ const UNDO_COALESCE_GROUP: Partial<Record<TracksAction['type'], string>> = {
   MOVE_CLIP: 'clip-drag',
   MOVE_SELECTED_CLIPS: 'clip-drag',
   MOVE_SELECTED_CLIPS_TO_TRACK: 'clip-drag',
-  APPLY_CLIP_PLACEMENT: 'clip-drag',
   TRIM_CLIP: 'clip-drag',
   STRETCH_CLIP: 'clip-drag',
   UPDATE_CLIP_ENVELOPE_POINTS: 'envelope-drag',
@@ -422,6 +421,10 @@ const UNDO_COALESCE_GROUP: Partial<Record<TracksAction['type'], string>> = {
   UPDATE_CHANNEL_SPLIT_RATIO: 'track-resize',
   RESIZE_MIDI_NOTE: 'midi-resize',
   UPDATE_MIDI_NOTE: 'midi-resize',
+  // APPLY_CLIP_PLACEMENT is intentionally absent: it's used both as the
+  // settle action of a clip-drag AND as the standalone action the split
+  // tool dispatches. The wrapper special-cases it so the drag settle
+  // coalesces but a standalone split keeps its own undo entry.
 };
 
 /** Two same-group actions farther apart than this are treated as
@@ -468,19 +471,31 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
   if (UNDOABLE_ACTIONS.has(action.type) && next.tracks !== before) {
     const group = UNDO_COALESCE_GROUP[action.type] ?? null;
     const now = Date.now();
-    const continuesGesture =
-      group !== null
-      && group === state.lastUndoCoalesceGroup
-      && state.lastUndoTimestamp !== null
+    const withinTimeout =
+      state.lastUndoTimestamp !== null
       && now - state.lastUndoTimestamp < COALESCE_TIMEOUT_MS;
 
+    // Same-group continuation (e.g. mousemove during a drag).
+    const sameGroupGesture =
+      group !== null && group === state.lastUndoCoalesceGroup && withinTimeout;
+
+    // APPLY_CLIP_PLACEMENT settles a clip-drag in progress, so it should
+    // coalesce with the gesture; but as a standalone (split tool) it
+    // gets its own entry.
+    const settlesClipDrag =
+      action.type === 'APPLY_CLIP_PLACEMENT'
+      && state.lastUndoCoalesceGroup === 'clip-drag'
+      && withinTimeout;
+
+    const continuesGesture = sameGroupGesture || settlesClipDrag;
+    // After settling, clear the group so the next gesture starts fresh.
+    const nextGroup = action.type === 'APPLY_CLIP_PLACEMENT' ? null : group;
+
     if (continuesGesture) {
-      // Already snapshotted at the first action of this gesture; just
-      // track the new last-action info and clear redo.
       return {
         ...next,
         future: [],
-        lastUndoCoalesceGroup: group,
+        lastUndoCoalesceGroup: nextGroup,
         lastUndoTimestamp: now,
       };
     }
@@ -488,7 +503,7 @@ export function tracksReducer(state: TracksState, action: TracksAction): TracksS
       ...next,
       past: [...state.past, before].slice(-MAX_UNDO_HISTORY),
       future: [], // new edit invalidates any redo stack
-      lastUndoCoalesceGroup: group,
+      lastUndoCoalesceGroup: nextGroup,
       lastUndoTimestamp: now,
     };
   }
