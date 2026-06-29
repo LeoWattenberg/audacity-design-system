@@ -625,6 +625,27 @@ function CanvasDemoContent() {
   // we don't need to thread state down into EditorLayout / Canvas.
   useGrabToPan({ scrollContainerRef });
 
+  // Selection-follows-focus invariant: whenever the focused track is
+  // set but the selection is empty (project load, after a delete,
+  // after any code path that moves focus without explicitly seeding a
+  // selection), bring selection into line with focus. Only fires when
+  // selection is empty so we don't squash deliberate multi-select or
+  // an in-flight Cmd+Arrow peek (which leaves selection > 0).
+  React.useEffect(() => {
+    if (preferences.trackSelectionMode !== 'follows-focus') return;
+    const focused = state.focusedTrackIndex;
+    if (focused === null || focused === undefined) return;
+    if (state.selectedTrackIndices.length > 0) return;
+    if (focused < 0 || focused >= state.tracks.length) return;
+    dispatch({ type: 'SELECT_TRACK', payload: focused });
+  }, [
+    preferences.trackSelectionMode,
+    state.focusedTrackIndex,
+    state.selectedTrackIndices,
+    state.tracks.length,
+    dispatch,
+  ]);
+
   // Sync playhead position with TimeCode display
   const currentTime = state.playheadPosition;
 
