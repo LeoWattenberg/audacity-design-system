@@ -105,9 +105,20 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           dispatch({ type: 'SET_SPLIT_MODE', payload: false });
           return;
         }
-        if (state.timeSelection) {
+        // Next: clear any active "selection-ish" state — time selection
+        // and any selected clips. Both go in one Escape press so the
+        // user has a single "deselect everything" gesture instead of
+        // hunting separate shortcuts.
+        const hasTimeSelection = !!state.timeSelection;
+        const hasSelectedClips = state.tracks.some(
+          (t) =>
+            t.clips.some((c) => c.selected)
+            || t.midiClips?.some((c) => c.selected),
+        );
+        if (hasTimeSelection || hasSelectedClips) {
           e.preventDefault();
-          handleEscape(playheadDeps);
+          if (hasTimeSelection) handleEscape(playheadDeps);
+          if (hasSelectedClips) dispatch({ type: 'DESELECT_ALL_CLIPS' });
           return;
         }
         // Progressive Escape:
