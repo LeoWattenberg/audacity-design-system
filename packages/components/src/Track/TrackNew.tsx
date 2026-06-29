@@ -693,8 +693,15 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               return;
             }
 
-            // Navigate vertically between tracks with arrow up/down (without Cmd or Shift)
-            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+            // Navigate vertically between tracks with arrow up/down (without Cmd or Shift).
+            // Suppressed when the clip was focused via mouse — arrow nav is a
+            // keyboard-mode feature, the first Tab strips data-focus-mouse and
+            // arrow nav resumes from there.
+            if (
+              (e.key === 'ArrowDown' || e.key === 'ArrowUp')
+              && !e.metaKey && !e.ctrlKey && !e.shiftKey
+              && !(e.currentTarget as HTMLElement).hasAttribute('data-focus-mouse')
+            ) {
               e.preventDefault();
               e.stopPropagation(); // Prevent global useKeyboardShortcuts from also handling this
               const direction = e.key === 'ArrowDown' ? 1 : -1;
