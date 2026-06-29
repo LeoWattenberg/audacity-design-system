@@ -816,6 +816,11 @@ export function EditorLayout(props: EditorLayoutProps) {
                   }
                   const nextIndex = index + 1;
                   if (nextIndex < state.tracks.length) {
+                    dispatch({ type: 'SET_FOCUSED_TRACK', payload: nextIndex });
+                    if (preferences.trackSelectionMode === 'follows-focus') {
+                      dispatch({ type: 'SELECT_TRACK', payload: nextIndex });
+                      setSelectionAnchor(nextIndex);
+                    }
                     const target = document.querySelector(
                       `.track-wrapper[data-track-index="${nextIndex}"] .track`
                     ) as HTMLElement;
@@ -1351,6 +1356,14 @@ export function EditorLayout(props: EditorLayoutProps) {
                     nextIndex++;
                   }
                   if (nextIndex < state.tracks.length) {
+                    // Move all three focus signals to the next track:
+                    // the blue outline (focusedTrackIndex), selection
+                    // (in follows-focus mode), and DOM focus.
+                    dispatch({ type: 'SET_FOCUSED_TRACK', payload: nextIndex });
+                    if (preferences.trackSelectionMode === 'follows-focus') {
+                      dispatch({ type: 'SELECT_TRACK', payload: nextIndex });
+                      setSelectionAnchor(nextIndex);
+                    }
                     const target = document.querySelector(
                       `.track-wrapper[data-track-index="${nextIndex}"] .track`
                     ) as HTMLElement;
