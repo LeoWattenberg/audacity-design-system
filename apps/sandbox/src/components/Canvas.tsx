@@ -971,9 +971,15 @@ export function Canvas({
                   setTimeout(() => {
                     const target = document.querySelector(
                       `.track-wrapper[data-track-index="${targetIndex}"] .track`
-                    ) as HTMLElement;
-                    target?.focus();
-                    target?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    ) as HTMLElement | null;
+                    if (target) {
+                      // Mark this focus as arrow-navigated so the receiving
+                      // TrackNew shows the blue outline (mouse-style) rather
+                      // than the black/white "container-focused" Tab-style.
+                      target.setAttribute('data-focus-from-nav', '1');
+                      target.focus();
+                      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
                   }, 0);
                 }}
                 onTrackReorder={(direction) => {

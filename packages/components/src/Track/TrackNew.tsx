@@ -802,10 +802,18 @@ const TrackNewComponent: React.FC<TrackProps> = ({
     setHasKeyboardFocus(true);
     onFocusChange?.(true);
 
-    // Notify if the container itself (not a child) received focus via keyboard.
-    // Mouse clicks give invisible DOM focus — don't show the red bars.
-    const containerHasFocus = e.target === trackRef.current && !focusFromMouseRef.current;
+    // Notify if the container itself (not a child) received focus via Tab.
+    // Mouse clicks and arrow-key track-to-track navigation both give
+    // invisible DOM focus — don't show the black/white "container-
+    // focused" bars; the consumer's blue outline already conveys the
+    // focused track.
+    const fromMouse = focusFromMouseRef.current;
     focusFromMouseRef.current = false;
+    const node = trackRef.current;
+    const fromNav = !!(node && node.hasAttribute('data-focus-from-nav'));
+    if (node && fromNav) node.removeAttribute('data-focus-from-nav');
+
+    const containerHasFocus = e.target === trackRef.current && !fromMouse && !fromNav;
     setIsContainerFocused(containerHasFocus);
     onContainerFocusChange?.(containerHasFocus);
   };
