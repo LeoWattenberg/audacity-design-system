@@ -1339,6 +1339,48 @@ export function Canvas({
                       payload: { trackIndex, clipId: clipId as number },
                     });
                   }
+                  // Snapshot initial state for every selected clip
+                  // (audio + MIDI) so the stretch hook can apply the
+                  // dragged clip's ratio across all of them. Include
+                  // the dragged clip even if it wasn't selected before —
+                  // we just selected it above.
+                  const allClipsInitialState: Array<{
+                    trackIndex: number;
+                    clipId: number;
+                    isMidi: boolean;
+                    initialDuration: number;
+                    initialStart: number;
+                    initialStretchFactor: number;
+                  }> = [];
+                  tracks.forEach((t, tIndex) => {
+                    t.clips.forEach((c) => {
+                      if (
+                        c.selected
+                        || (tIndex === trackIndex && c.id === clipId)
+                      ) {
+                        allClipsInitialState.push({
+                          trackIndex: tIndex,
+                          clipId: c.id as number,
+                          isMidi: false,
+                          initialDuration: c.duration,
+                          initialStart: c.start,
+                          initialStretchFactor: (c as any).stretchFactor ?? 1,
+                        });
+                      }
+                    });
+                    (t.midiClips || []).forEach((c: any) => {
+                      if (c.selected) {
+                        allClipsInitialState.push({
+                          trackIndex: tIndex,
+                          clipId: c.id,
+                          isMidi: true,
+                          initialDuration: c.duration,
+                          initialStart: c.start,
+                          initialStretchFactor: c.stretchFactor ?? 1,
+                        });
+                      }
+                    });
+                  });
                   startClipStretch({
                     trackIndex,
                     clipId: clipId as number,
@@ -1346,6 +1388,7 @@ export function Canvas({
                     initialDuration: clip.duration,
                     initialStart: clip.start,
                     initialStretchFactor: (clip as any).stretchFactor ?? 1,
+                    allClipsInitialState,
                   });
                 }}
                 envelopePointSizes={envelopePointSizes}

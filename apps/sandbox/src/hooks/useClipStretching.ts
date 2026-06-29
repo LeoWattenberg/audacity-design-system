@@ -2,21 +2,34 @@ import { useRef, useEffect } from 'react';
 import { useTracksDispatch } from '../contexts/TracksContext';
 
 /**
- * Hook for visual-only time stretching of a clip.
+ * Hook for visual-only time stretching of clips.
  *
- * Mirrors useClipTrimming in shape but is much simpler: stretch doesn't touch
- * trim, doesn't snap to neighbors, and only affects the dragged clip. The
- * dispatched STRETCH_CLIP action updates duration + stretchFactor so the
- * waveform renders horizontally expanded / compressed without the underlying
- * audio data changing.
+ * Applies the same stretch ratio derived from the dragged clip to
+ * every currently-selected clip (audio + MIDI). `STRETCH_CLIP` is
+ * dispatched per clip with that clip's own initial duration / start
+ * scaled by the shared ratio, so all selected clips remain visually
+ * "in sync" rather than each running their own independent gesture.
  */
+
+export interface ClipStretchInitialState {
+  trackIndex: number;
+  clipId: number;
+  isMidi: boolean;
+  initialDuration: number;
+  initialStart: number;
+  initialStretchFactor: number;
+}
+
 export interface ClipStretchState {
   trackIndex: number;
   clipId: number;
   edge: 'left' | 'right';
+  /** Initial state of the dragged clip — used to compute the drag ratio. */
   initialDuration: number;
   initialStart: number;
   initialStretchFactor: number;
+  /** Snapshots of every selected clip at the start of the gesture. */
+  allClipsInitialState: ClipStretchInitialState[];
 }
 
 export interface UseClipStretchingOptions {
@@ -30,13 +43,6 @@ export interface UseClipStretchingReturn {
   clipStretchStateRef: React.MutableRefObject<ClipStretchState | null>;
   startClipStretch: (stretchState: ClipStretchState) => void;
   cancelStretch: () => void;
-  /**
-   * Mirrors the time-selection hook's wasJustDragging: returns true for a
-   * brief window after a stretch drag ends. Canvas's track-background click
-   * handler reads this to skip its `DESELECT_ALL_CLIPS` dispatch, which
-   * otherwise fires when the browser synthesises a click on the LCA of the
-   * mousedown (stretch handle) and mouseup (track area).
-   */
   wasJustStretching: () => boolean;
 }
 
@@ -47,7 +53,7 @@ const MAX_STRETCH = 10;
 export function useClipStretching(
   options: UseClipStretchingOptions,
 ): UseClipStretchingReturn {
-  const { containerRef, tracks, pixelsPerSecond, clipContentOffset } = options;
+  const { containerRef, pixelsPerSecond, clipContentOffset } = options;
   const dispatch = useTracksDispatch();
   const clipStretchStateRef = useRef<ClipStretchState | null>(null);
   const justStretchedRef = useRef(false);
@@ -65,50 +71,59 @@ export function useClipStretching(
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current || !clipStretchStateRef.current) return;
-      const stretchState = clipStretchStateRef.current;
+      const s = clipStretchStateRef.current;
 
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const mouseTime = Math.max(0, (x - clipContentOffset) / pixelsPerSecond);
 
-      if (stretchState.edge === 'right') {
-        // Drag right edge: new duration = mouseTime - clip.start.
-        const newDuration = Math.max(MIN_DURATION, mouseTime - stretchState.initialStart);
-        const ratio = newDuration / stretchState.initialDuration;
-        const newStretchFactor = Math.max(
-          MIN_STRETCH,
-          Math.min(MAX_STRETCH, stretchState.initialStretchFactor * ratio),
-        );
-        dispatch({
-          type: 'STRETCH_CLIP',
-          payload: {
-            trackIndex: stretchState.trackIndex,
-            clipId: stretchState.clipId,
-            newDuration,
-            newStretchFactor,
-          },
-        });
+      // Compute the drag ratio from the DRAGGED clip's new vs initial
+      // duration, then apply that same ratio to every selected clip.
+      let ratio: number;
+      if (s.edge === 'right') {
+        const draggedNewDuration = Math.max(MIN_DURATION, mouseTime - s.initialStart);
+        ratio = draggedNewDuration / s.initialDuration;
       } else {
-        // Drag left edge: shift the start so the right edge stays put.
-        const initialRight = stretchState.initialStart + stretchState.initialDuration;
-        const newStart = Math.min(initialRight - MIN_DURATION, Math.max(0, mouseTime));
-        const newDuration = initialRight - newStart;
-        const ratio = newDuration / stretchState.initialDuration;
-        const newStretchFactor = Math.max(
-          MIN_STRETCH,
-          Math.min(MAX_STRETCH, stretchState.initialStretchFactor * ratio),
+        const draggedInitialRight = s.initialStart + s.initialDuration;
+        const draggedNewStart = Math.min(
+          draggedInitialRight - MIN_DURATION,
+          Math.max(0, mouseTime),
         );
-        dispatch({
-          type: 'STRETCH_CLIP',
-          payload: {
-            trackIndex: stretchState.trackIndex,
-            clipId: stretchState.clipId,
-            newDuration,
-            newStretchFactor,
-            newStart,
-          },
-        });
+        const draggedNewDuration = draggedInitialRight - draggedNewStart;
+        ratio = draggedNewDuration / s.initialDuration;
       }
+
+      s.allClipsInitialState.forEach((c) => {
+        const stretchFactor = Math.max(
+          MIN_STRETCH,
+          Math.min(MAX_STRETCH, c.initialStretchFactor * ratio),
+        );
+        const newDuration = Math.max(MIN_DURATION, c.initialDuration * ratio);
+        if (s.edge === 'right') {
+          dispatch({
+            type: 'STRETCH_CLIP',
+            payload: {
+              trackIndex: c.trackIndex,
+              clipId: c.clipId,
+              newDuration,
+              newStretchFactor: stretchFactor,
+            },
+          });
+        } else {
+          // Left edge: keep each clip's right edge fixed.
+          const newStart = c.initialStart + c.initialDuration - newDuration;
+          dispatch({
+            type: 'STRETCH_CLIP',
+            payload: {
+              trackIndex: c.trackIndex,
+              clipId: c.clipId,
+              newDuration,
+              newStretchFactor: stretchFactor,
+              newStart,
+            },
+          });
+        }
+      });
     };
 
     const handleMouseUp = () => {
@@ -116,8 +131,6 @@ export function useClipStretching(
       cancelStretch();
       // Tell the canvas click handler not to deselect on the click event the
       // browser is about to fire on the LCA of the mousedown + mouseup.
-      // 0ms timeout lets the synthesised click run between mouseup and the
-      // next macrotask, then we reset.
       justStretchedRef.current = true;
       setTimeout(() => {
         justStretchedRef.current = false;
@@ -130,7 +143,7 @@ export function useClipStretching(
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [tracks, pixelsPerSecond, clipContentOffset, dispatch, containerRef]);
+  }, [pixelsPerSecond, clipContentOffset, dispatch, containerRef]);
 
   return { clipStretchStateRef, startClipStretch, cancelStretch, wasJustStretching };
 }
