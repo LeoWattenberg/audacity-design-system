@@ -305,8 +305,11 @@ const ClipComponent: React.FC<ClipProps> = ({
             timeSelectionRange={timeSelectionRange}
             pixelsPerSecond={pixelsPerSecond}
             onClick={(e) => {
+              // Cmd / Ctrl is the host app's grab-to-pan modifier —
+              // don't treat header clicks as additive selection.
+              if (e.metaKey || e.ctrlKey) return;
               e.stopPropagation();
-              onHeaderClick?.(e.shiftKey, e.metaKey || e.ctrlKey);
+              onHeaderClick?.(e.shiftKey, false);
             }}
             onMenuClick={(e) => {
               e.stopPropagation();

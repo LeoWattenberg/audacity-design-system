@@ -527,11 +527,14 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               const dy = e.clientY - downPos.y;
               if (dx * dx + dy * dy > 9) return; // >3px = drag, not click
             }
+            // Cmd / Ctrl is the host app's grab-to-pan modifier — never
+            // treat it as an additive-selection click here.
+            if (e.metaKey || e.ctrlKey) return;
             // Body clicks place the cursor (handled by time selection system),
-            // not select the clip. Only Shift/Cmd body clicks trigger clip selection.
-            if (e.shiftKey || e.metaKey || e.ctrlKey) {
+            // not select the clip. Only Shift body clicks trigger clip selection.
+            if (e.shiftKey) {
               e.stopPropagation();
-              onClipClick?.(clip.id, e.shiftKey, e.metaKey || e.ctrlKey);
+              onClipClick?.(clip.id, true, false);
             }
           }}
           onFocus={(e) => {
