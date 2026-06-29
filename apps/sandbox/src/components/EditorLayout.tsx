@@ -4,7 +4,7 @@ import { Canvas } from './Canvas';
 import { MarketplaceModal, type MarketplaceEffect } from './MarketplaceModal';
 import { EffectPickerMenu } from './EffectPickerMenu';
 import { useMuseHub } from '../contexts/MuseHubContext';
-import { TrackControlSidePanel, TrackControlPanel, TimelineRuler, PlayheadCursor, VerticalRulerPanel, EffectsPanel, CustomScrollbar, TrackType, ThemeProvider, RulerFlyout, useTabOrder, useAccessibilityProfile, PianoRollPanel, PanelHeader } from '@dilsonspickles/components';
+import { TrackControlSidePanel, TrackControlPanel, TimelineRuler, PlayheadCursor, VerticalRulerPanel, EffectsPanel, CustomScrollbar, TrackType, ThemeProvider, RulerFlyout, useTabOrder, useAccessibilityProfile, usePreferences, PianoRollPanel, PanelHeader } from '@dilsonspickles/components';
 import type { SpectrogramScale, WaveformRulerFormat, PanelHeaderTab } from '@dilsonspickles/components';
 import { MixerPanel, type MixerPanelChannel } from '@dilsonspickles/components';
 import type { EnvelopePointStyleKey } from '@audacity-ui/core';
@@ -154,6 +154,7 @@ export function EditorLayout(props: EditorLayoutProps) {
     showMixer,
   } = props;
 
+  const { preferences } = usePreferences();
   const { setIsSpectrogramSettingsOpen, setIsPluginManagerOpen } = useDialogs();
   const {
     effectsPanel, setEffectsPanel, setEffectDialog, setEffectSelectorMenu,
@@ -1213,6 +1214,18 @@ export function EditorLayout(props: EditorLayoutProps) {
                       // Otherwise, focus next track's container
                       const nextIndex = trackIndex + 1;
                       if (nextIndex < state.tracks.length) {
+                        // Tabbing into the next track moves both:
+                        //   - the blue track-focus outline (focusedTrackIndex)
+                        //   - and in follows-focus mode, the selection
+                        // so the visible focus ring and the selection
+                        // stay aligned. The DOM .focus() also fires so
+                        // the keyboard-Tab black/white outline shows on
+                        // the track container (no data-focus-from-nav).
+                        dispatch({ type: 'SET_FOCUSED_TRACK', payload: nextIndex });
+                        if (preferences.trackSelectionMode === 'follows-focus') {
+                          dispatch({ type: 'SELECT_TRACK', payload: nextIndex });
+                          setSelectionAnchor(nextIndex);
+                        }
                         const target = document.querySelector(
                           `.track-wrapper[data-track-index="${nextIndex}"] .track`
                         ) as HTMLElement;
