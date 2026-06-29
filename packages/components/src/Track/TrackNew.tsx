@@ -561,13 +561,15 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               return;
             }
 
-            // Escape: move focus back to the track container
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              e.stopPropagation();
-              trackRef.current?.focus();
-              return;
-            }
+            // Escape on a clip is handled by the global keyboard
+            // shortcut (useKeyboardShortcuts) so the priority chain —
+            // split mode > clear selections > unwind focus — works
+            // consistently from any focused element. The first Esc
+            // clears the clip / time selection; the next moves focus
+            // up to the track container; another blurs.
+            // (Previously this branch shortcut-focused the track
+            // container and stopped propagation, which silently ate
+            // the selection-clearing step.)
 
             // Delete key: let it bubble to App.tsx handler, but DON'T stop propagation
             // The App.tsx handler will read data-clip-id and data-track-index from this element
