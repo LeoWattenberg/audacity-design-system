@@ -30,6 +30,10 @@ export interface EditorLayoutProps {
   onTrackHeaderScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   trackHeaderScrollRef: React.RefObject<HTMLDivElement | null>;
+  /** True while Space is held — cursor should show "grab". */
+  isPanModifierHeld?: boolean;
+  /** True while actively grab-panning — cursor should show "grabbing". */
+  isPanning?: boolean;
 
   // Timeline
   pixelsPerSecond: number;
@@ -140,6 +144,7 @@ export function EditorLayout(props: EditorLayoutProps) {
     state, dispatch, activeMenuItem,
     scrollX, scrollY, onScroll, onTrackHeaderScroll,
     scrollContainerRef, trackHeaderScrollRef,
+    isPanModifierHeld = false, isPanning = false,
     pixelsPerSecond, timelineWidth, timelineDuration, timelineFormat, bpm, beatsPerMeasure,
     showRmsInWaveform, controlPointStyle, spectrogramScale, setSpectrogramScale: _setSpectrogramScale, showVerticalRulers,
     isPlaying, setIsPlaying, trackMeterLevels, isMicMonitoring, recordingClipId,
@@ -1051,7 +1056,7 @@ export function EditorLayout(props: EditorLayoutProps) {
                 height: '100%',
                 overflow: 'auto',
                 backgroundColor: theme.background.canvas.default,
-                cursor: 'text',
+                cursor: isPanning ? 'grabbing' : isPanModifierHeld ? 'grab' : 'text',
                 scrollbarWidth: 'none',
                 msOverflowStyle: 'none',
                 overscrollBehavior: 'none',

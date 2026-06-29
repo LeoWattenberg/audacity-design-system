@@ -48,6 +48,7 @@ import { useZoomControls } from './hooks/useZoomControls';
 import { usePlaybackControls } from './hooks/usePlaybackControls';
 import { useRecording } from './hooks/useRecording';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useGrabToPan } from './hooks/useGrabToPan';
 import { useProjectManagement } from './hooks/useProjectManagement';
 import { DialogProvider, useDialogs } from './contexts/DialogContext';
 import { ContextMenuProvider, useContextMenus } from './contexts/ContextMenuContext';
@@ -617,6 +618,17 @@ function CanvasDemoContent() {
     isFlatNavigation, controlPanelHasFocus,
     toggleLoopRegion,
     audioManagerRef,
+  });
+
+  // Hold-space to grab-pan the canvas (Figma / Photoshop style).
+  // Space-tap (no drag) still toggles playback; the hook owns that
+  // decision via keyup-with-no-pan detection.
+  const { isModifierHeld: isPanModifierHeld, isPanning } = useGrabToPan({
+    scrollContainerRef,
+    onSpaceTap: () => {
+      if (state.isRecording) handleStopRecording();
+      else handlePlay();
+    },
   });
 
   // Sync playhead position with TimeCode display
@@ -1644,6 +1656,8 @@ function CanvasDemoContent() {
           onTrackHeaderScroll={handleTrackHeaderScroll}
           scrollContainerRef={scrollContainerRef}
           trackHeaderScrollRef={trackHeaderScrollRef}
+          isPanModifierHeld={isPanModifierHeld}
+          isPanning={isPanning}
           pixelsPerSecond={pixelsPerSecond}
           timelineWidth={timelineWidth}
           timelineDuration={timelineDuration}
