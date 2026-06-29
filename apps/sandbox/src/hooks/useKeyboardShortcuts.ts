@@ -172,7 +172,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
       // --- [ / ] : trim / stretch selected clips ---
       // Plain [ ] = trim edge inward; Shift = extend outward.
       // Alt = stretch instead of trim.
-      if (e.key === '[' || e.key === ']') {
+      // Use e.code so the binding is invariant to Shift/Alt — on Mac,
+      // Shift+[ produces e.key='{' and Alt+[ produces dead/special
+      // glyphs, so a check on e.key would silently miss those combos.
+      if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
         if (e.metaKey || e.ctrlKey) {
           // leave Cmd-bracket combos to the browser / OS
         } else {
@@ -181,7 +184,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
             || target.getAttribute('contenteditable') === 'true' || target.isContentEditable;
           if (!isTextInput) {
             e.preventDefault();
-            const edge = e.key === '[' ? 'left' : 'right';
+            const edge = e.code === 'BracketLeft' ? 'left' : 'right';
             const trimStretchDeps = { state, dispatch };
             if (e.altKey) {
               // Stretch — Shift toggles direction (longer vs shorter).
