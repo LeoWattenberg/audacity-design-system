@@ -248,7 +248,7 @@ export interface TrackProps {
    * Callback when ArrowUp/Down is pressed while the track container itself is focused.
    * Direction: 1 = down, -1 = up.
    */
-  onTrackNavigateVertical?: (direction: 1 | -1, shiftKey?: boolean) => void;
+  onTrackNavigateVertical?: (direction: 1 | -1, shiftKey?: boolean, altKey?: boolean) => void;
 
   /**
    * Callback when Cmd+ArrowUp/Down is pressed on the track container to reorder the track.
@@ -920,10 +920,10 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               e.stopPropagation();
               onTrackReorder?.(e.key === 'ArrowDown' ? 1 : -1);
             } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey) {
-              // Plain or Shift+Arrow: navigate between tracks
+              // Plain / Shift / Alt+Arrow: navigate between tracks
               e.preventDefault();
               e.stopPropagation();
-              onTrackNavigateVertical?.(e.key === 'ArrowDown' ? 1 : -1, e.shiftKey);
+              onTrackNavigateVertical?.(e.key === 'ArrowDown' ? 1 : -1, e.shiftKey, e.altKey);
             } else if (e.key === 'Tab' && !e.shiftKey) {
               e.preventDefault();
               e.stopPropagation();

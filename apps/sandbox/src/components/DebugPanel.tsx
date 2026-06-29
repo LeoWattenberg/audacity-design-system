@@ -504,7 +504,7 @@ export function DebugPanel({
                 style={{ cursor: 'pointer', marginTop: '2px' }}
               />
               <span style={{ fontFamily: 'Inter, sans-serif', fontSize: '12px', lineHeight: '16px', color: '#14151a' }}>
-                <strong>Selection follows focus</strong> — plain clicks and arrow keys move focus AND replace selection. Use Shift to extend a range, or Option/Alt to toggle a track in/out non-contiguously.
+                <strong>Selection follows focus</strong> — plain clicks and arrow keys move focus AND replace selection. Hold Option/Alt to decouple (peek without changing selection). Shift extends a contiguous range. Cmd-click a side-panel header for non-contiguous multi-select.
               </span>
             </label>
           </div>

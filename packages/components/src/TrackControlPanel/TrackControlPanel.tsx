@@ -309,12 +309,19 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
       onRangeSelection?.();
       return;
     }
-    // Cmd/Ctrl/Alt+Click: Toggle individual track in/out of selection.
-    // Alt (Option) is the recommended modifier — Cmd is also the
-    // grab-to-pan modifier in the host app, so it can clash. Both are
-    // accepted for non-contiguous multi-select.
-    if (e.metaKey || e.ctrlKey || e.altKey) {
+    // Cmd/Ctrl+Click: Toggle individual track in/out of selection
+    // (non-contiguous multi-select). Side panel only — the canvas
+    // background reserves Cmd for grab-to-pan.
+    if (e.metaKey || e.ctrlKey) {
       onToggleSelection?.();
+      return;
+    }
+    // Alt/Option+Click: "peek" — leave the selection alone, just give
+    // this track focus. Lets the user look around without disturbing
+    // the current selection in follows-focus mode.
+    if (e.altKey) {
+      // No selection change. Focus is handled by the consumer's
+      // onMouseDown / DOM focus on this element.
       return;
     }
     // Regular click: Select only this track
