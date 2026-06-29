@@ -1107,104 +1107,129 @@ export function Canvas({
                   // No track with clips found — don't move focus
                 }}
                 onClipTrim={(clipId, edge, deltaSeconds) => {
-                  // Find the clip to get its current state
-                  const clip = track.clips.find(c => c.id === clipId) || (track.midiClips || []).find(c => c.id === clipId);
-                  if (!clip) return;
-
-                  // Stretch-aware bounds: duration / deltaSeconds are in CANVAS
-                  // time; trimStart / fullDuration are in SOURCE time. With
-                  // stretchFactor s, a source span of S occupies S * s on the
-                  // canvas, so the canvas-time max duration is
-                  // (fullDuration - trimStart) * s, and a canvas delta of d
-                  // shifts trimStart by d / s in source time.
-                  const stretch = (clip as any).stretchFactor ?? 1;
-                  const currentTrimStart = (clip as any).trimStart || 0;
-                  const currentDuration = clip.duration;
-                  const currentStart = clip.start;
-                  const fullDuration =
-                    (clip as any).fullDuration || (currentTrimStart + currentDuration / stretch);
-                  const currentMaxDuration = (fullDuration - currentTrimStart) * stretch;
-                  const isAtMaxDuration = Math.abs(currentDuration - currentMaxDuration) < 0.001;
-
-                  let newTrimStart = currentTrimStart;
-                  let newDuration = currentDuration;
-                  let newStart = currentStart;
-
-                  if (edge === 'left') {
-                    // Left edge: positive delta = trim (increase trimStart), negative = expand
-                    if (deltaSeconds < 0 && isAtMaxDuration) {
-                      return;
-                    }
-
-                    newTrimStart = currentTrimStart + deltaSeconds / stretch;
-                    newDuration = Math.max(0.1, currentDuration - deltaSeconds);
-                    newStart = currentStart + deltaSeconds;
-
-                    // Don't allow expanding past the source audio. Canvas-time max.
-                    const maxDuration = (fullDuration - newTrimStart) * stretch;
-                    if (newDuration > maxDuration) {
-                      newDuration = maxDuration;
-                      newTrimStart = fullDuration - newDuration / stretch;
-                      newStart = currentStart + (newTrimStart - currentTrimStart) * stretch;
-                    }
-                  } else {
-                    // Right edge: positive delta = trim, negative = expand
-                    if (deltaSeconds < 0 && isAtMaxDuration) {
-                      return;
-                    }
-
-                    newDuration = Math.max(0.1, currentDuration - deltaSeconds);
-                    const maxDuration = (fullDuration - currentTrimStart) * stretch;
-                    newDuration = Math.min(newDuration, maxDuration);
-                  }
-
-                  newTrimStart = Math.max(0, newTrimStart);
-
-                  dispatch({
-                    type: 'TRIM_CLIP',
-                    payload: {
-                      trackIndex,
-                      clipId: clipId as number,
-                      newTrimStart,
-                      newDuration,
-                      newStart: edge === 'left' ? newStart : undefined,
-                    },
+                  // Collect every selected clip (audio + MIDI). If the
+                  // shortcut was triggered on a not-yet-selected clip we
+                  // still trim that one. The same canvas-time delta is
+                  // applied to each clip independently, with per-clip
+                  // bounds checks against its own source duration.
+                  const targets: Array<{ trackIndex: number; clip: any }> = [];
+                  tracks.forEach((t, tIndex) => {
+                    t.clips.forEach((c: any) => {
+                      if (c.selected || (tIndex === trackIndex && c.id === clipId)) {
+                        targets.push({ trackIndex: tIndex, clip: c });
+                      }
+                    });
+                    (t.midiClips || []).forEach((c: any) => {
+                      if (c.selected) {
+                        targets.push({ trackIndex: tIndex, clip: c });
+                      }
+                    });
                   });
+
+                  // Dedupe (the dispatched clip may already be in selection).
+                  const seen = new Set<string>();
+                  const uniqueTargets = targets.filter(({ trackIndex: ti, clip }) => {
+                    const key = `${ti}-${clip.id}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+
+                  for (const { trackIndex: ti, clip } of uniqueTargets) {
+                    const stretch = (clip as any).stretchFactor ?? 1;
+                    const currentTrimStart = (clip as any).trimStart || 0;
+                    const currentDuration = clip.duration;
+                    const currentStart = clip.start;
+                    const fullDuration =
+                      (clip as any).fullDuration || (currentTrimStart + currentDuration / stretch);
+                    const currentMaxDuration = (fullDuration - currentTrimStart) * stretch;
+                    const isAtMaxDuration = Math.abs(currentDuration - currentMaxDuration) < 0.001;
+
+                    let newTrimStart = currentTrimStart;
+                    let newDuration = currentDuration;
+                    let newStart = currentStart;
+
+                    if (edge === 'left') {
+                      if (deltaSeconds < 0 && isAtMaxDuration) continue;
+                      newTrimStart = currentTrimStart + deltaSeconds / stretch;
+                      newDuration = Math.max(0.1, currentDuration - deltaSeconds);
+                      newStart = currentStart + deltaSeconds;
+                      const maxDuration = (fullDuration - newTrimStart) * stretch;
+                      if (newDuration > maxDuration) {
+                        newDuration = maxDuration;
+                        newTrimStart = fullDuration - newDuration / stretch;
+                        newStart = currentStart + (newTrimStart - currentTrimStart) * stretch;
+                      }
+                    } else {
+                      if (deltaSeconds < 0 && isAtMaxDuration) continue;
+                      newDuration = Math.max(0.1, currentDuration - deltaSeconds);
+                      const maxDuration = (fullDuration - currentTrimStart) * stretch;
+                      newDuration = Math.min(newDuration, maxDuration);
+                    }
+
+                    newTrimStart = Math.max(0, newTrimStart);
+
+                    dispatch({
+                      type: 'TRIM_CLIP',
+                      payload: {
+                        trackIndex: ti,
+                        clipId: clip.id as number,
+                        newTrimStart,
+                        newDuration,
+                        newStart: edge === 'left' ? newStart : undefined,
+                      },
+                    });
+                  }
                 }}
                 onClipStretch={(clipId, edge, deltaSeconds) => {
                   // Keyboard time-stretch (Alt+Arrow). Sign convention
                   // matches onClipTrim: positive delta shrinks the clip
                   // from `edge`, negative grows it.
-                  //
-                  // - edge='right', delta=+ → right edge moves left  (shorter)
-                  // - edge='right', delta=- → right edge moves right (longer)
-                  // - edge='left',  delta=+ → left edge moves right  (shorter, clip.start advances)
-                  // - edge='left',  delta=- → left edge moves left   (longer, clip.start retreats)
-                  //
-                  // Stretch factor scales with the canvas-duration ratio.
-                  // Same clamps as the mouse-drag stretch hook: 0.1s min,
-                  // factor 0.1×–10×.
-                  const clip = track.clips.find(c => c.id === clipId);
-                  if (!clip) return;
-                  const currentDuration = clip.duration;
-                  const currentStart = clip.start;
-                  const currentStretch = (clip as any).stretchFactor ?? 1;
-                  const newDuration = Math.max(0.1, currentDuration - deltaSeconds);
-                  const ratio = newDuration / currentDuration;
-                  const newStretchFactor = Math.max(
-                    0.1,
-                    Math.min(10, currentStretch * ratio),
-                  );
-                  dispatch({
-                    type: 'STRETCH_CLIP',
-                    payload: {
-                      trackIndex,
-                      clipId: clipId as number,
-                      newDuration,
-                      newStretchFactor,
-                      newStart: edge === 'left' ? currentStart + deltaSeconds : undefined,
-                    },
+                  // Applied to every selected clip; if the originating
+                  // clip isn't currently selected we still stretch it.
+                  const targets: Array<{ trackIndex: number; clip: any }> = [];
+                  tracks.forEach((t, tIndex) => {
+                    t.clips.forEach((c: any) => {
+                      if (c.selected || (tIndex === trackIndex && c.id === clipId)) {
+                        targets.push({ trackIndex: tIndex, clip: c });
+                      }
+                    });
+                    (t.midiClips || []).forEach((c: any) => {
+                      if (c.selected) {
+                        targets.push({ trackIndex: tIndex, clip: c });
+                      }
+                    });
                   });
+                  const seen = new Set<string>();
+                  const uniqueTargets = targets.filter(({ trackIndex: ti, clip }) => {
+                    const key = `${ti}-${clip.id}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+
+                  for (const { trackIndex: ti, clip } of uniqueTargets) {
+                    const currentDuration = clip.duration;
+                    const currentStart = clip.start;
+                    const currentStretch = (clip as any).stretchFactor ?? 1;
+                    const newDuration = Math.max(0.1, currentDuration - deltaSeconds);
+                    const ratio = newDuration / currentDuration;
+                    const newStretchFactor = Math.max(
+                      0.1,
+                      Math.min(10, currentStretch * ratio),
+                    );
+                    if (newStretchFactor === currentStretch) continue;
+                    dispatch({
+                      type: 'STRETCH_CLIP',
+                      payload: {
+                        trackIndex: ti,
+                        clipId: clip.id as number,
+                        newDuration,
+                        newStretchFactor,
+                        newStart: edge === 'left' ? currentStart + deltaSeconds : undefined,
+                      },
+                    });
+                  }
                 }}
                 onEnvelopePointsChange={(clipId, points) => {
                   dispatch({
