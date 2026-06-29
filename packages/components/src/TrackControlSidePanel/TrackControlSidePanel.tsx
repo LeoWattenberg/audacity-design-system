@@ -229,7 +229,11 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
       {/* Header */}
       <div className="track-control-side-panel__header">
         <h2 className="track-control-side-panel__title">Tracks</h2>
-        <div ref={addButtonRef}>
+        {/* role="group" marks this as an island tab stop so the global
+            ArrowUp/Down track-focus handler doesn't steal arrow keys
+            pressed while the Add-new button has focus. */}
+        <div ref={addButtonRef} role="group" aria-label="Add track">
+
           <Button
             ref={addButtonElementRef}
             variant="secondary"
