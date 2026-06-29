@@ -547,12 +547,20 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         colorIdx++;
         return { ...track, color };
       });
+      // Auto-select the first track on load — gives the project a
+      // sensible starting state instead of "nothing selected". If the
+      // caller already passed a selection in via state, leave it.
+      const newSelectedTrackIndices =
+        coloredTracks.length > 0 && state.selectedTrackIndices.length === 0
+          ? [newFocusedTrackIndex ?? 0]
+          : state.selectedTrackIndices;
       return {
         ...state,
         tracks: coloredTracks,
         nextTrackColorIndex: colorIdx,
         // Auto-focus first track when loading tracks, unless already focused
         focusedTrackIndex: newFocusedTrackIndex,
+        selectedTrackIndices: newSelectedTrackIndices,
         // SET_TRACKS is a bulk replace (project load / reset) — drop history
         // so undo can't roll back across an unrelated project state.
         past: [],
