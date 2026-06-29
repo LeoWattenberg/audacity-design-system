@@ -870,6 +870,17 @@ export function EditorLayout(props: EditorLayoutProps) {
                     y: rect.bottom,
                   });
                 }
+                // Arrow keys nudge the playhead while the timeline
+                // ruler is focused. Step is 0.1s, matching J/K
+                // elsewhere; Shift accelerates to 1s.
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const step = e.shiftKey ? 1 : 0.1;
+                  const delta = e.key === 'ArrowLeft' ? -step : step;
+                  const next = Math.max(0, state.playheadPosition + delta);
+                  dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: next });
+                }
               }}
               style={STYLE_FULL_WIDTH_RELATIVE}
               onMouseMove={(e) => {

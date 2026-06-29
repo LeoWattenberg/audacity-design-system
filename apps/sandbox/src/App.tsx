@@ -618,6 +618,7 @@ function CanvasDemoContent() {
     isFlatNavigation, controlPanelHasFocus,
     toggleLoopRegion,
     audioManagerRef,
+    onOpenPreferences: () => setIsPreferencesModalOpen(true),
   });
 
   // Hold Cmd (Ctrl on Windows/Linux) to grab-pan the canvas. The

@@ -33,6 +33,8 @@ export interface UseKeyboardShortcutsOptions {
   controlPanelHasFocus: number | null;
   toggleLoopRegion: () => void;
   audioManagerRef: React.RefObject<AudioPlaybackManager>;
+  /** Cmd/Ctrl+, opens the preferences modal. */
+  onOpenPreferences?: () => void;
 }
 
 /**
@@ -58,6 +60,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     controlPanelHasFocus,
     toggleLoopRegion,
     audioManagerRef,
+    onOpenPreferences,
   } = options;
 
   // Track whether the user is navigating via keyboard or mouse.
@@ -161,6 +164,15 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           e.preventDefault();
           active.blur();
           isKeyboardNavigatingRef.current = false;
+          return;
+        }
+      }
+
+      // --- Cmd/Ctrl+, : open Preferences ---
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        if (onOpenPreferences) {
+          e.preventDefault();
+          onOpenPreferences();
           return;
         }
       }
