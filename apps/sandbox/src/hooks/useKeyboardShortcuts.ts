@@ -8,6 +8,7 @@ import { handleDelete } from './handlers/deleteHandlers';
 import { handleSpacebar, handleRecordToggle, handleEffectsToggle, handleLoopToggle } from './handlers/transportHandlers';
 import { handleHomeEnd, handleF6, handleTrackFocus, handleEnterSelection } from './handlers/navigationHandlers';
 import { handlePlayheadMove, handleEscape, handleDeleteTimeRange } from './handlers/playheadSelectionHandlers';
+import { handleTrimEdge, handleStretchEdge, TRIM_STRETCH_STEP_SECONDS } from './handlers/trimStretchHandlers';
 
 export interface ClipboardState {
   clips: any[];
@@ -165,6 +166,34 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           active.blur();
           isKeyboardNavigatingRef.current = false;
           return;
+        }
+      }
+
+      // --- [ / ] : trim / stretch selected clips ---
+      // Plain [ ] = trim edge inward; Shift = extend outward.
+      // Alt = stretch instead of trim.
+      if (e.key === '[' || e.key === ']') {
+        if (e.metaKey || e.ctrlKey) {
+          // leave Cmd-bracket combos to the browser / OS
+        } else {
+          const target = e.target as HTMLElement;
+          const isTextInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
+            || target.getAttribute('contenteditable') === 'true' || target.isContentEditable;
+          if (!isTextInput) {
+            e.preventDefault();
+            const edge = e.key === '[' ? 'left' : 'right';
+            const trimStretchDeps = { state, dispatch };
+            if (e.altKey) {
+              // Stretch — Shift toggles direction (longer vs shorter).
+              const direction = e.shiftKey ? 'longer' : 'shorter';
+              handleStretchEdge(edge, direction, trimStretchDeps);
+            } else {
+              // Trim — Shift toggles direction (extend vs shrink).
+              const delta = e.shiftKey ? -TRIM_STRETCH_STEP_SECONDS : TRIM_STRETCH_STEP_SECONDS;
+              handleTrimEdge(edge, delta, trimStretchDeps);
+            }
+            return;
+          }
         }
       }
 
