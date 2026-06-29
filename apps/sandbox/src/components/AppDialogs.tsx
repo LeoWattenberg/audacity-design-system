@@ -107,6 +107,8 @@ export interface AppDialogsProps {
   // OS preference
   os: 'windows' | 'macos';
   updatePreference: (key: string, value: any) => void;
+  // Track selection model (debug-only for now)
+  trackSelectionMode: 'classic' | 'follows-focus';
 
   // Debug panel
   debugTrackCount: number;
@@ -166,7 +168,7 @@ export function AppDialogs(props: AppDialogsProps) {
     alertDialogTitle, setAlertDialogTitle, alertDialogMessage, setAlertDialogMessage,
     zoomToggleLevel1, setZoomToggleLevel1, zoomToggleLevel2, setZoomToggleLevel2,
     scrollContainerRef, handleSaveToComputer,
-    os, updatePreference,
+    os, updatePreference, trackSelectionMode,
     debugTrackCount, setDebugTrackCount,
     showFocusDebug, setShowFocusDebug,
     activeProfile, profiles, setProfile,
@@ -1161,6 +1163,8 @@ export function AppDialogs(props: AppDialogsProps) {
         onUseSplitRecordButtonChange={setUseSplitRecordButton}
         showMixer={showMixer}
         onShowMixerChange={setShowMixer}
+        trackSelectionMode={trackSelectionMode}
+        onTrackSelectionModeChange={(mode) => updatePreference('trackSelectionMode', mode)}
       />
     </>
   );

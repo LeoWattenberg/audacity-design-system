@@ -1875,6 +1875,7 @@ function CanvasDemoContent() {
         handleSaveToComputer={handleSaveToComputer}
         os={preferences.operatingSystem}
         updatePreference={updatePreference}
+        trackSelectionMode={preferences.trackSelectionMode}
         debugTrackCount={debugTrackCount}
         setDebugTrackCount={setDebugTrackCount}
         showFocusDebug={showFocusDebug}

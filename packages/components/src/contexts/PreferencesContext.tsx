@@ -50,6 +50,14 @@ export interface PreferencesState {
   cloudTempLocation: string;
   cloudTempRetentionDays: string;
 
+  // Debug
+  /** How track focus interacts with track selection.
+   *  - 'classic': focus and selection are independent (today's behaviour).
+   *  - 'follows-focus': moving focus replaces the selection with the focused
+   *    track; explicit modifiers (Shift, Option/Alt) are required to extend
+   *    or toggle a non-contiguous selection. */
+  trackSelectionMode: 'classic' | 'follows-focus';
+
   // Spectral Display
   enableSpectralSelection: boolean;
   spectralScale: string;
@@ -106,6 +114,9 @@ const defaultPreferences: PreferencesState = {
   showSaveDialog: true,
   cloudTempLocation: '/Users/Username/Library/Application Support/audacity/cloud-temp',
   cloudTempRetentionDays: '30',
+
+  // Debug
+  trackSelectionMode: 'classic',
 
   // Spectral Display
   enableSpectralSelection: true,

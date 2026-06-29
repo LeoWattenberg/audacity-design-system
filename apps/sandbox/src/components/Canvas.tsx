@@ -966,6 +966,11 @@ export function Canvas({
                     const newSelection: number[] = [];
                     for (let i = start; i <= end; i++) newSelection.push(i);
                     dispatch({ type: 'SET_SELECTED_TRACKS', payload: newSelection });
+                  } else if (preferences.trackSelectionMode === 'follows-focus') {
+                    // Plain arrow in follows-focus mode: selection moves
+                    // with focus. (Classic mode leaves selection alone.)
+                    dispatch({ type: 'SELECT_TRACK', payload: targetIndex });
+                    setSelectionAnchor?.(targetIndex);
                   }
 
                   setTimeout(() => {
@@ -1370,8 +1375,23 @@ export function Canvas({
                       newSelection.push(i);
                     }
                     dispatch({ type: 'SET_SELECTED_TRACKS', payload: newSelection });
+                  } else if (e.altKey) {
+                    // Option/Alt+Click: toggle this track in/out of selection
+                    // (non-contiguous multi-select).
+                    const next = selectedTrackIndices.includes(trackIndex)
+                      ? selectedTrackIndices.filter((i) => i !== trackIndex)
+                      : [...selectedTrackIndices, trackIndex];
+                    dispatch({ type: 'SET_SELECTED_TRACKS', payload: next });
+                    setSelectionAnchor(trackIndex);
+                  } else if (preferences.trackSelectionMode === 'follows-focus') {
+                    // Selection-follows-focus mode: a plain click replaces
+                    // the selection with just this track (matches the new
+                    // focus). Modifiers above already handled the
+                    // multi-select cases.
+                    dispatch({ type: 'SELECT_TRACK', payload: trackIndex });
+                    setSelectionAnchor(trackIndex);
                   } else {
-                    // Clear anchor when Shift is not held
+                    // Classic mode: plain click only changes focus.
                     setSelectionAnchor(null);
                   }
                 }}

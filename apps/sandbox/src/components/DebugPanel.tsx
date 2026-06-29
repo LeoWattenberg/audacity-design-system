@@ -59,6 +59,9 @@ export interface DebugPanelProps {
   showMixer: boolean;
   onShowMixerChange: (value: boolean) => void;
 
+  // Track selection model (classic vs follows-focus)
+  trackSelectionMode: 'classic' | 'follows-focus';
+  onTrackSelectionModeChange: (value: 'classic' | 'follows-focus') => void;
 }
 
 export function DebugPanel({
@@ -89,6 +92,8 @@ export function DebugPanel({
   onUseSplitRecordButtonChange,
   showMixer,
   onShowMixerChange,
+  trackSelectionMode,
+  onTrackSelectionModeChange,
 }: DebugPanelProps) {
   return (
     <Dialog
@@ -458,6 +463,50 @@ export function DebugPanel({
                 Missing Plugins Modal
               </Button>
             </div>
+          </div>
+        </div>
+
+        {/* Track Selection Model Section */}
+        <div>
+          <h3 style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 600,
+            lineHeight: '20px',
+            color: '#14151a',
+            margin: '0 0 12px 0',
+          }}>
+            Track Selection Model
+          </h3>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                value="classic"
+                checked={trackSelectionMode === 'classic'}
+                onChange={(e) => onTrackSelectionModeChange(e.target.value as 'classic' | 'follows-focus')}
+                style={{ cursor: 'pointer', marginTop: '2px' }}
+              />
+              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: '12px', lineHeight: '16px', color: '#14151a' }}>
+                <strong>Classic</strong> — focus and selection are independent. Arrow keys move focus only; Shift+Click / Cmd+Click change selection.
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                value="follows-focus"
+                checked={trackSelectionMode === 'follows-focus'}
+                onChange={(e) => onTrackSelectionModeChange(e.target.value as 'classic' | 'follows-focus')}
+                style={{ cursor: 'pointer', marginTop: '2px' }}
+              />
+              <span style={{ fontFamily: 'Inter, sans-serif', fontSize: '12px', lineHeight: '16px', color: '#14151a' }}>
+                <strong>Selection follows focus</strong> — plain clicks and arrow keys move focus AND replace selection. Use Shift to extend a range, or Option/Alt to toggle a track in/out non-contiguously.
+              </span>
+            </label>
           </div>
         </div>
 

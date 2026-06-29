@@ -305,12 +305,15 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
 
   const handleClick = (e: React.MouseEvent) => {
     // Shift+Click: Range selection (select all tracks between last selected and clicked)
-    if (e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       onRangeSelection?.();
       return;
     }
-    // Cmd/Ctrl+Click: Toggle individual track in/out of selection
-    if (e.metaKey || e.ctrlKey) {
+    // Cmd/Ctrl/Alt+Click: Toggle individual track in/out of selection.
+    // Alt (Option) is the recommended modifier — Cmd is also the
+    // grab-to-pan modifier in the host app, so it can clash. Both are
+    // accepted for non-contiguous multi-select.
+    if (e.metaKey || e.ctrlKey || e.altKey) {
       onToggleSelection?.();
       return;
     }
