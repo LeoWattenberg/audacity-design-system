@@ -73,6 +73,28 @@ export function useGrabToPan({
     };
   }, []);
 
+  // Force the hand cursor app-wide while the modifier is held. Setting
+  // it on a single element gets overridden by every child that has
+  // its own cursor (clips, resize handles, etc.), so we toggle a class
+  // on <html> and let a !important rule win.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isPanning) {
+      root.classList.remove('pan-modifier-held');
+      root.classList.add('pan-active');
+    } else if (isModifierHeld) {
+      root.classList.add('pan-modifier-held');
+      root.classList.remove('pan-active');
+    } else {
+      root.classList.remove('pan-modifier-held');
+      root.classList.remove('pan-active');
+    }
+    return () => {
+      root.classList.remove('pan-modifier-held');
+      root.classList.remove('pan-active');
+    };
+  }, [isModifierHeld, isPanning]);
+
   // Mouse drag → scroll the container. Only active while H is held;
   // re-binding when it toggles attaches and detaches the capture-phase
   // listener cleanly.

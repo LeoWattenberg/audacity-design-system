@@ -620,12 +620,10 @@ function CanvasDemoContent() {
     audioManagerRef,
   });
 
-  // Hold-H to grab-pan the canvas (Photoshop's hand-tool key). Space
-  // stays reserved for play/pause; H is otherwise unbound so it
-  // doesn't collide with anything.
-  const { isModifierHeld: isPanModifierHeld, isPanning } = useGrabToPan({
-    scrollContainerRef,
-  });
+  // Hold Cmd (Ctrl on Windows/Linux) to grab-pan the canvas. The
+  // hook applies the hand cursor app-wide via a class on <html>, so
+  // we don't need to thread state down into EditorLayout / Canvas.
+  useGrabToPan({ scrollContainerRef });
 
   // Sync playhead position with TimeCode display
   const currentTime = state.playheadPosition;
@@ -1652,8 +1650,6 @@ function CanvasDemoContent() {
           onTrackHeaderScroll={handleTrackHeaderScroll}
           scrollContainerRef={scrollContainerRef}
           trackHeaderScrollRef={trackHeaderScrollRef}
-          isPanModifierHeld={isPanModifierHeld}
-          isPanning={isPanning}
           pixelsPerSecond={pixelsPerSecond}
           timelineWidth={timelineWidth}
           timelineDuration={timelineDuration}

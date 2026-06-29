@@ -22,3 +22,16 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Grab-to-pan: while Cmd/Ctrl is held the cursor switches to a hand
+ * app-wide — the !important wins over each clip / resize handle /
+ * etc. that has its own cursor. `pan-active` is set during the actual
+ * drag and produces the closed hand. */
+html.pan-modifier-held,
+html.pan-modifier-held * {
+  cursor: grab !important;
+}
+html.pan-active,
+html.pan-active * {
+  cursor: grabbing !important;
+}
