@@ -110,9 +110,28 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           handleEscape(playheadDeps);
           return;
         }
-        // Fallback: clear keyboard focus. Lets users "reset tabbing" so
-        // the next Tab starts from the top of the page again, and removes
-        // the focus outline from whatever was last focused.
+        // Fallback: anchor focus to the currently focused track. A bare
+        // blur() left document.activeElement on <body>, and the browser
+        // would resume Tab from a stale cursor position — sometimes
+        // landing on the timeline ruler, sometimes on the side panel,
+        // depending on what was focused before Escape. Putting focus on
+        // the focused-track container makes the next Tab deterministic
+        // (it walks from this track into its clips).
+        if (state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined) {
+          const trackEl = document.querySelector(
+            `.track-wrapper[data-track-index="${state.focusedTrackIndex}"] .track`,
+          ) as HTMLElement | null;
+          if (trackEl) {
+            e.preventDefault();
+            // Mark as nav-driven so the receiving track shows the blue
+            // outline, not the black/white container-focus bars.
+            trackEl.setAttribute('data-focus-from-nav', '1');
+            trackEl.focus();
+            isKeyboardNavigatingRef.current = false;
+            return;
+          }
+        }
+        // No focused track to land on — fall back to clearing focus.
         const active = document.activeElement as HTMLElement | null;
         if (active && active !== document.body && typeof active.blur === 'function') {
           e.preventDefault();
