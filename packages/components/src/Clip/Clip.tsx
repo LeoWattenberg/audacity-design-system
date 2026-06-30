@@ -87,6 +87,9 @@ export interface ClipProps {
   cursorPosition?: { time: number; db: number } | null;
   /** Callback when clip header is clicked */
   onHeaderClick?: (shiftKey: boolean, metaKey: boolean) => void;
+  /** Callback when the user commits a clip rename inline (header
+   *  double-click → input → Enter / blur). */
+  onRename?: (newName: string) => void;
   /** Callback when clip menu button is clicked */
   onMenuClick?: (x: number, y: number) => void;
   /** Callback when dragging left or right edge to trim clip */
@@ -156,6 +159,7 @@ const ClipComponent: React.FC<ClipProps> = ({
   hoveredPointIndices = EMPTY_NUMBER_ARRAY,
   cursorPosition = null,
   onHeaderClick,
+  onRename,
   onMenuClick,
   onTrimEdge,
   onStretchEdge,
@@ -298,6 +302,7 @@ const ClipComponent: React.FC<ClipProps> = ({
             inTimeSelection={inTimeSelection}
             state={isHeaderHovering || forceHeaderHover ? 'hover' : 'default'}
             name={name}
+            onRename={onRename}
             width={width}
             showMenu={!isRecording}
             showStretch={clipStretchFactor !== 1}

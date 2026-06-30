@@ -212,7 +212,7 @@ export type TracksAction =
   | { type: 'REDO' }
   | { type: 'SET_TRACKS'; payload: Track[] }
   | { type: 'REPLACE_TRACKS_EDIT'; payload: Track[] }
-  | { type: 'ADD_TRACK'; payload: Track }
+  | { type: 'ADD_TRACK'; payload: Track | (Track & { insertAt?: number }) }
   | { type: 'UPDATE_TRACK'; payload: { index: number; track: Partial<Track> } }
   | { type: 'DELETE_TRACK'; payload: number }
   | { type: 'DELETE_TRACKS'; payload: number[] }
@@ -603,7 +603,7 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
     }
 
     case 'ADD_TRACK': {
-      const track = action.payload;
+      const { insertAt, ...track } = action.payload as Track & { insertAt?: number };
       const color = track.color ?? TRACK_COLOR_PALETTE[state.nextTrackColorIndex % TRACK_COLOR_PALETTE.length];
       // Defense in depth: if the caller passed an id that already exists
       // (collisions caused React duplicate-key warnings), bump to max+1.
@@ -611,11 +611,20 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
       const safeId = existingIds.has(track.id)
         ? state.tracks.reduce((max, t) => (t.id > max ? t.id : max), 0) + 1
         : track.id;
-      const newTracks = [...state.tracks, { ...track, id: safeId, color }];
+      // insertAt lets callers (e.g. duplicate) drop the new track at
+      // a specific position rather than appending — clamped to a
+      // valid slice index so out-of-range values just append.
+      const newTrack = { ...track, id: safeId, color };
+      const newTracks = [...state.tracks];
+      const position =
+        insertAt !== undefined && insertAt >= 0 && insertAt <= state.tracks.length
+          ? insertAt
+          : newTracks.length;
+      newTracks.splice(position, 0, newTrack);
       return {
         ...state,
         tracks: newTracks,
-        focusedTrackIndex: newTracks.length - 1,
+        focusedTrackIndex: position,
         nextTrackColorIndex: track.color ? state.nextTrackColorIndex : state.nextTrackColorIndex + 1,
       };
     }

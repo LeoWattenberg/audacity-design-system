@@ -173,6 +173,13 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
   const [addTrackFlyoutAutoFocus, setAddTrackFlyoutAutoFocus] = useState(false);
   const addButtonRef = React.useRef<HTMLDivElement>(null);
   const addButtonElementRef = React.useRef<HTMLButtonElement>(null);
+  // Captures the panel's menu button that opened the side-panel
+  // context menu so focus can return there when the menu closes —
+  // including after an item (e.g. Track color) is picked.
+  const menuTriggerRef = React.useRef<HTMLElement | null>(null);
+  // Remembered track index for the fallback path when the original
+  // trigger no longer exists (e.g. user picked "Delete").
+  const menuTrackIndexRef = React.useRef<number>(-1);
 
   const addButtonTabIndex = useTabOrder('add-track');
 
@@ -186,9 +193,11 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
   } as React.CSSProperties;
 
   const handleMenuClick = (trackIndex: number, event?: React.MouseEvent) => {
+    menuTrackIndexRef.current = trackIndex;
     // If event is provided, use the button's position
     if (event) {
       const button = event.currentTarget as HTMLElement;
+      menuTriggerRef.current = button;
       const rect = button.getBoundingClientRect();
       setMenuState({
         isOpen: true,
@@ -200,6 +209,12 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
       // Fallback: Get the track control panel element to position menu
       const trackElement = document.querySelector(`.track-control-side-panel__track:nth-child(${trackIndex + 1})`);
       if (trackElement) {
+        // Best-effort: capture the menu button inside the panel so we
+        // can still restore focus when the user opened the menu via
+        // keyboard rather than a mouse click.
+        menuTriggerRef.current = trackElement.querySelector<HTMLElement>(
+          '[aria-label="Track menu"]',
+        );
         const rect = trackElement.getBoundingClientRect();
         setMenuState({
           isOpen: true,
@@ -211,8 +226,46 @@ export const TrackControlSidePanel: React.FC<TrackControlSidePanelProps> = ({
     }
   };
 
+  // Restores focus to the panel button that opened the side-panel
+  // context menu. If that button is gone (e.g. the user just deleted
+  // the track), falls back to the next nearest panel's menu button,
+  // and finally to the side-panel header's "Add new" button.
+  //
+  // handleMenuClose tends to fire twice in a row — once from the
+  // action handler (e.g. swatch onClick) and once from the
+  // ContextMenu's own close mechanism. Bailing here when the trigger
+  // and fallback are both gone prevents the second call from
+  // overriding the first restore with the "Add new" last-resort
+  // fallback.
+  const restoreMenuTriggerFocus = () => {
+    const trigger = menuTriggerRef.current;
+    const fallbackIndex = menuTrackIndexRef.current;
+    if (!trigger && fallbackIndex < 0) return;
+    menuTriggerRef.current = null;
+    menuTrackIndexRef.current = -1;
+    setTimeout(() => {
+      if (trigger && document.contains(trigger)) {
+        trigger.focus();
+        return;
+      }
+      const panels = document.querySelectorAll<HTMLElement>('.track-control-panel');
+      if (panels.length > 0 && fallbackIndex >= 0) {
+        const targetIdx = Math.max(0, Math.min(panels.length - 1, fallbackIndex));
+        const candidate = panels[targetIdx].querySelector<HTMLElement>(
+          '[aria-label="Track menu"]',
+        );
+        if (candidate) {
+          candidate.focus();
+          return;
+        }
+      }
+      addButtonElementRef.current?.focus();
+    }, 0);
+  };
+
   const handleMenuClose = () => {
     setMenuState({ isOpen: false, trackIndex: -1, x: 0, y: 0 });
+    restoreMenuTriggerFocus();
   };
 
   return (

@@ -29,19 +29,25 @@ export function handleEffectsToggle(deps: TransportHandlerDeps): void {
   deps.setEffectsPanel(prev => {
     if (prev) {
       return { ...prev, isOpen: !prev.isOpen };
-    } else {
-      const trackIndex = deps.state.selectedTrackIndices.length > 0
-        ? deps.state.selectedTrackIndices[0]
-        : 0;
-      return {
-        isOpen: true,
-        trackIndex,
-        left: 0,
-        top: 0,
-        height: 600,
-        width: 240,
-      };
     }
+    // Prefer the focused track (where the user's attention is) over
+    // the first selected track or track 0 — matches how delete /
+    // split / duplicate resolve their target.
+    const focused = deps.state.focusedTrackIndex;
+    const trackIndex =
+      focused !== null && focused !== undefined
+        ? focused
+        : deps.state.selectedTrackIndices.length > 0
+          ? deps.state.selectedTrackIndices[0]
+          : 0;
+    return {
+      isOpen: true,
+      trackIndex,
+      left: 0,
+      top: 0,
+      height: 600,
+      width: 240,
+    };
   });
 }
 

@@ -23,6 +23,11 @@ export interface EditorLayoutProps {
   // Active menu
   activeMenuItem: 'home' | 'project' | 'export' | 'debug';
 
+  // Captures the element that opened the track context menu so the
+  // shell can restore focus there when the menu closes. Shared with
+  // AppContextMenus.
+  trackMenuTriggerRef?: React.MutableRefObject<HTMLElement | null>;
+
   // Scroll
   scrollX: number;
   scrollY: number;
@@ -138,6 +143,7 @@ const STYLE_FLEX_ROW_OVERFLOW_HIDDEN: React.CSSProperties = { flex: 1, display: 
 export function EditorLayout(props: EditorLayoutProps) {
   const {
     state, dispatch, activeMenuItem,
+    trackMenuTriggerRef,
     scrollX, scrollY, onScroll, onTrackHeaderScroll,
     scrollContainerRef, trackHeaderScrollRef,
     pixelsPerSecond, timelineWidth, timelineDuration, timelineFormat, bpm, beatsPerMeasure,
@@ -224,6 +230,82 @@ export function EditorLayout(props: EditorLayoutProps) {
     }),
     [state.tracks, isFlatNavigation, trackBase],
   );
+
+  // "Enter the time selection" Tab handler. When the user has just
+  // drawn a time selection (typically via mouse drag) and presses
+  // Tab from an ambient focus point (body / canvas scroll container),
+  // jump focus into the first clip on the focused track that overlaps
+  // the selection. If the focused track has no overlapping clip, fall
+  // back to the track wrapper so the user is at least on the track
+  // that owns the selection. Runs before any sibling tab interceptors
+  // via the capture phase.
+  React.useEffect(() => {
+    const handleSelectionTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (!state.timeSelection) return;
+      // Intercept when focus is somewhere "neutral" w.r.t. the
+      // selection — body, the canvas scroll container, anything
+      // with tabindex=-1, OR a track wrapper (which is where a
+      // mouse-drag to make a time selection often parks focus).
+      // We deliberately do NOT intercept when focus is on a clip
+      // or a panel control — those want their own Tab order.
+      const isAmbient =
+        !active
+        || active === document.body
+        || active.classList.contains('canvas-scroll-container')
+        || active.classList.contains('track')
+        || (active.tabIndex ?? -1) === -1;
+      if (!isAmbient) return;
+      // Also bail if the user happens to be on a clip — let the
+      // normal clip-to-clip Tab order handle it.
+      if (active?.closest('[data-clip-id]')) return;
+      const fti = state.focusedTrackIndex;
+      if (fti === null || fti === undefined) return;
+      const track = state.tracks[fti] as any;
+      if (!track) return;
+
+      const { startTime, endTime } = state.timeSelection;
+      const overlapping = (track.clips || [])
+        .filter((c: any) => c.start < endTime && c.start + c.duration > startTime)
+        .sort((a: any, b: any) => a.start - b.start);
+
+      const trackEl = document.querySelector<HTMLElement>(
+        `.track-wrapper[data-track-index="${fti}"] .track`,
+      );
+      let targetEl: HTMLElement | null = null;
+      if (overlapping.length > 0) {
+        targetEl = document.querySelector<HTMLElement>(
+          `[data-clip-id="${overlapping[0].id}"][data-track-index="${fti}"]`,
+        );
+      } else {
+        targetEl = trackEl;
+      }
+      if (!targetEl) return;
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setTimeout(() => {
+        // If focus is already on the target (mouse drag parked it
+        // there), blur first so the re-focus actually fires the
+        // onFocus handler and lights up the container-focused
+        // (keyboard-mode) outline.
+        if (document.activeElement === targetEl) {
+          targetEl.blur();
+        }
+        if (targetEl && targetEl === trackEl) {
+          // Mark this as keyboard-driven focus so TrackNew shows the
+          // container-focused outline rather than the ambient mouse
+          // outline left over from the drag.
+          targetEl.setAttribute('data-focus-from-nav', '1');
+        }
+        targetEl?.focus();
+      }, 0);
+    };
+
+    document.addEventListener('keydown', handleSelectionTab, true);
+    return () => document.removeEventListener('keydown', handleSelectionTab, true);
+  }, [state.timeSelection, state.focusedTrackIndex, state.tracks]);
 
   // Flat-nav Tab interceptor — the side panel (all headers), canvas
   // (all clips) and ruler panel (all rulers) sit in separate DOM
@@ -675,8 +757,12 @@ export function EditorLayout(props: EditorLayoutProps) {
           }}
           onDuplicateTrack={(trackIndex) => {
             const trackIndices = state.selectedTrackIndices.includes(trackIndex)
-              ? state.selectedTrackIndices
+              ? [...state.selectedTrackIndices]
               : [trackIndex];
+
+            // Descending so each splice in the reducer doesn't shift
+            // the indices we haven't processed yet.
+            trackIndices.sort((a, b) => b - a);
 
             let nextClipId = Math.max(...state.tracks.flatMap((t: any) => t.clips.map((c: any) => c.id)), 0) + 1;
             let nextTrackId = Math.max(...state.tracks.map((t: any) => t.id), 0) + 1;
@@ -692,11 +778,15 @@ export function EditorLayout(props: EditorLayoutProps) {
                     ...clip,
                     id: nextClipId++,
                   })),
+                  // Drop the copy directly after its source so it's
+                  // adjacent in the side panel rather than floating
+                  // at the bottom of the track stack.
+                  insertAt: idx + 1,
                 };
 
                 dispatch({
                   type: 'ADD_TRACK',
-                  payload: duplicatedTrack,
+                  payload: duplicatedTrack as any,
                 });
               }
             });
@@ -747,6 +837,9 @@ export function EditorLayout(props: EditorLayoutProps) {
                 key={track.id}
                 trackName={track.name}
                 trackType={trackType}
+                onRename={(newName) => {
+                  dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { name: newName } } });
+                }}
                 volume={track.gain ?? 75}
                 pan={track.pan ?? 0}
                 onVolumeChange={(value) => {
@@ -755,8 +848,8 @@ export function EditorLayout(props: EditorLayoutProps) {
                 onPanChange={(value) => {
                   dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { pan: value } } });
                 }}
-                isMuted={false}
-                isSolo={false}
+                isMuted={track.muted ?? false}
+                isSolo={track.soloed ?? false}
                 isFocused={state.focusedTrackIndex === index}
                 containerFocused={containerFocusedTrack === index}
                 meterLevel={
@@ -788,8 +881,18 @@ export function EditorLayout(props: EditorLayoutProps) {
                 }
                 meterClipped={state.recordingPeakLevel > 100}
                 meterStyle="default"
-                onMuteToggle={() => {}}
-                onSoloToggle={() => {}}
+                onMuteToggle={() => {
+                  const newMuted = !(track.muted ?? false);
+                  dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { muted: newMuted } } });
+                  if (newMuted) {
+                    audioManagerRef.current.setTrackMuted(index, true);
+                  } else {
+                    audioManagerRef.current.setTrackGain(index, track.gain ?? 75);
+                  }
+                }}
+                onSoloToggle={() => {
+                  dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { soloed: !(track.soloed ?? false) } } });
+                }}
                 onEffectsClick={() => {
                   const isCurrentlyOpen = effectsPanel?.isOpen && effectsPanel.trackIndex === index;
                   setEffectsPanel(isCurrentlyOpen ? null : {
@@ -866,6 +969,9 @@ export function EditorLayout(props: EditorLayoutProps) {
                 }}
                 onMenuClick={(e) => {
                   const button = e.currentTarget;
+                  if (trackMenuTriggerRef) {
+                    trackMenuTriggerRef.current = button as HTMLElement;
+                  }
                   const rect = button.getBoundingClientRect();
                   setTrackContextMenu({
                     isOpen: true,
@@ -1269,10 +1375,14 @@ export function EditorLayout(props: EditorLayoutProps) {
                         setTimeSelectionContextMenu({ isOpen: true, x, y, trackIndex, trackType: track?.type });
                       }
                     }}
-                    onTrackFocusChange={(_trackIndex, _hasFocus) => {
-                      // Don't dispatch SET_FOCUSED_TRACK here — clip vertical navigation
-                      // moves focus between tracks without moving the track focus outline.
-                      // Track clicks and container arrow navigation handle SET_FOCUSED_TRACK directly.
+                    onTrackFocusChange={(trackIndex, hasFocus) => {
+                      // Track focus follows clip focus: when a clip in
+                      // a different track receives focus, the track
+                      // focus outline tags along so the side panel and
+                      // ruler stay in sync with where the user is.
+                      if (hasFocus) {
+                        dispatch({ type: 'SET_FOCUSED_TRACK', payload: trackIndex });
+                      }
                       setControlPanelHasFocus(null);
                     }}
                     onTrackContainerFocusChange={(trackIndex, hasFocus) => {

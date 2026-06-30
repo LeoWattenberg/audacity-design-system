@@ -215,9 +215,11 @@ export const VerticalRulerPanel: React.FC<VerticalRulerPanelProps> = ({
                 } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                   e.preventDefault();
                   onRulerNavigateVertical?.(index, e.key === 'ArrowDown' ? 1 : -1);
-                } else if (e.key === 'Enter' || e.key === ' ' || (e.key === 'F10' && e.shiftKey)) {
-                  // Enter / Space / Shift+F10 all open the ruler flyout.
-                  // Shift+F10 is the standard "context-menu" keystroke.
+                } else if (e.key === 'F10' && e.shiftKey) {
+                  // Only Shift+F10 (the standard "context-menu"
+                  // keystroke) opens the ruler flyout — Enter / Space
+                  // were too easy to hit by accident while just
+                  // tabbing past the ruler.
                   e.preventDefault();
                   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                   onRulerActivate?.(index, rect);

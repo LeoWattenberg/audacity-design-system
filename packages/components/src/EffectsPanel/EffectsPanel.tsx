@@ -434,15 +434,20 @@ export const EffectsPanel: React.FC<EffectsPanelProps> = ({
   React.useEffect(() => {
     if (isOpen && panelRef.current && !hasAutoFocused.current) {
       hasAutoFocused.current = true;
+      // Prefer the Track section's "Add effect" button — that's the
+      // canonical action when the user opens the panel (typically via
+      // the E shortcut). Falls back to the close button if the panel
+      // is rendered without an add button (e.g. label tracks), and
+      // finally to the panel container itself.
+      const addBtn = panelRef.current.querySelector<HTMLElement>(
+        '.effects-stack-header__add-button',
+      );
       const closeBtn = panelRef.current.querySelector<HTMLElement>(
         '.effects-panel-header__close-button',
       );
       setTimeout(() => {
-        if (closeBtn) {
-          closeBtn.focus({ preventScroll: true });
-        } else {
-          panelRef.current?.focus({ preventScroll: true });
-        }
+        const target = addBtn ?? closeBtn ?? panelRef.current;
+        target?.focus({ preventScroll: true });
       }, 0);
     }
     if (!isOpen) {

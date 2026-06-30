@@ -44,6 +44,10 @@ export interface AppContextMenusProps {
 
   // OS preference
   os: 'windows' | 'macos';
+
+  // Where the track-menu button that opened the track context menu
+  // lives — used to send focus back when the menu closes.
+  trackMenuTriggerRef?: React.MutableRefObject<HTMLElement | null>;
 }
 
 export function AppContextMenus({
@@ -60,6 +64,7 @@ export function AppContextMenus({
   timeSelection, bpm, beatsPerMeasure,
   onClipboardSet,
   os,
+  trackMenuTriggerRef,
 }: AppContextMenusProps) {
   const { isSpectrogramSettingsOpen, setIsSpectrogramSettingsOpen } = useDialogs();
   const {
@@ -69,6 +74,53 @@ export function AppContextMenus({
     effectSelectorMenu, setEffectSelectorMenu,
     setEffectDialog,
   } = useContextMenus();
+
+  // Returns focus to the menu's originating button after it closes.
+  // Used by every track-context-menu action that calls
+  // `setTrackContextMenu(null)`. If the original trigger no longer
+  // exists (Delete removed the whole track), falls back to the
+  // nearest remaining track's menu button so the user lands somewhere
+  // in the same neighbourhood — finally the Add-new button if every
+  // track is gone.
+  const restoreTrackMenuFocus = React.useCallback(
+    (deletedTrackIndex?: number) => {
+      const trigger = trackMenuTriggerRef?.current ?? null;
+      // TrackContextMenu fires both an action handler and onClose
+      // back-to-back (see swatch onClick and ContextMenuItem). The
+      // first restore wins; the second sees a null trigger and no
+      // deletedTrackIndex hint, so we bail to avoid moving focus a
+      // second time (which would otherwise land on the side-panel
+      // "Add new" fallback).
+      if (!trigger && deletedTrackIndex === undefined) return;
+      if (trackMenuTriggerRef) trackMenuTriggerRef.current = null;
+      setTimeout(() => {
+        if (trigger && document.contains(trigger)) {
+          trigger.focus();
+          return;
+        }
+        // Trigger is gone (deleted track). Pick the nearest remaining
+        // track's menu button.
+        const panels = document.querySelectorAll<HTMLElement>('.track-control-panel');
+        if (panels.length > 0 && deletedTrackIndex !== undefined) {
+          const targetIdx = Math.max(0, Math.min(panels.length - 1, deletedTrackIndex));
+          const candidate = panels[targetIdx].querySelector<HTMLElement>(
+            '[aria-label="Track menu"]',
+          );
+          if (candidate) {
+            candidate.focus();
+            return;
+          }
+        }
+        // Last resort: the side panel's Add-new button.
+        const addBtn = document.querySelector<HTMLElement>(
+          '.track-control-side-panel__header button',
+        );
+        addBtn?.focus();
+      }, 0);
+    },
+    [trackMenuTriggerRef],
+  );
+
   return (
     <>
       {/* Clip Context Menu */}
@@ -232,14 +284,21 @@ export function AppContextMenus({
           x={trackContextMenu.x}
           y={trackContextMenu.y}
           autoFocus={trackContextMenu.openedViaKeyboard}
-          onClose={() => setTrackContextMenu(null)}
+          onClose={() => {
+            setTrackContextMenu(null);
+            restoreTrackMenuFocus();
+          }}
           onDelete={() => {
             if (trackContextMenu) {
+              const deletedIdx = trackContextMenu.trackIndex;
               dispatch({
                 type: 'DELETE_TRACK',
-                payload: trackContextMenu.trackIndex,
+                payload: deletedIdx,
               });
               setTrackContextMenu(null);
+              // The trigger button vanishes with the track — fall back
+              // to the nearest remaining track's menu button.
+              restoreTrackMenuFocus(deletedIdx);
             }
           }}
           onColorChange={(color) => {
@@ -256,6 +315,7 @@ export function AppContextMenus({
                 });
               });
               setTrackContextMenu(null);
+              restoreTrackMenuFocus();
             }
           }}
           onSpectrogramSettings={() => {

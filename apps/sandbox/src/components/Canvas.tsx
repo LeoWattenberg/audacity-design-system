@@ -903,10 +903,18 @@ export function Canvas({
         onDragStart={(e: React.DragEvent) => e.preventDefault()}
         style={{ ...containerProps.style, height: `${totalHeight}px`, userSelect: 'none', cursor: 'text' } as React.CSSProperties}
       >
-        {tracks.map((track, trackIndex) => {
+        {(() => {
+          // Solo overrides per-track mute visuals: when any track is
+          // soloed, every non-soloed track reads as effectively muted
+          // (matches the audio behaviour). Computed once per render.
+          const anySoloed = tracks.some((t: any) => t.soloed);
+          return tracks.map((track, trackIndex) => {
           const trackHeight = track.height || DEFAULT_TRACK_HEIGHT;
           const isSelected = selectedTrackIndices.includes(trackIndex);
           const isFocused = focusedTrackIndex === trackIndex;
+          const effectivelyMuted =
+            (track as any).muted === true
+            || (anySoloed && (track as any).soloed !== true);
 
           // Calculate y position for this track
           const yOffset = calculateTrackYOffset(trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT);
@@ -1004,6 +1012,7 @@ export function Canvas({
                 envelopeMode={envelopeMode}
                 isSelected={isSelected}
                 isFocused={isFocused}
+                isMuted={effectivelyMuted}
                 isLabelTrack={track.type === 'label'}
                 isMidiTrack={track.type === 'midi'}
                 pixelsPerSecond={pixelsPerSecond}
@@ -1017,10 +1026,18 @@ export function Canvas({
                   dispatch({ type: 'SET_FOCUSED_TRACK', payload: targetIndex });
 
                   if (shiftKey) {
-                    // Shift+Arrow: extend/contract track selection
-                    const anchor = selectionAnchor ?? trackIndex;
-                    if (selectionAnchor === null && setSelectionAnchor) {
-                      setSelectionAnchor(trackIndex);
+                    // Shift+Arrow: extend/contract a track selection.
+                    // Model 3: if the focused track is NOT part of the
+                    // current selection, treat this as the start of a
+                    // fresh range — anchor on the focused track,
+                    // ignore the stale selection. Otherwise keep
+                    // extending from the existing anchor.
+                    const focusInSelection = selectedTrackIndices.includes(trackIndex);
+                    const anchor = focusInSelection
+                      ? (selectionAnchor ?? trackIndex)
+                      : trackIndex;
+                    if (!focusInSelection || selectionAnchor === null) {
+                      setSelectionAnchor?.(trackIndex);
                     }
                     const start = Math.min(anchor, targetIndex);
                     const end = Math.max(anchor, targetIndex);
@@ -1330,6 +1347,16 @@ export function Canvas({
                 onClipMenuClick={(clipId, x, y, openedViaKeyboard) => {
                   onClipMenuClick?.(clipId as number, trackIndex, x, y, openedViaKeyboard);
                 }}
+                onClipRename={(clipId, newName) => {
+                  dispatch({
+                    type: 'UPDATE_CLIP',
+                    payload: {
+                      trackIndex,
+                      clipId: clipId as number,
+                      updates: { name: newName },
+                    },
+                  });
+                }}
                 onClipClick={(clipId, shiftKey, metaKey) => {
                   // Don't change selection if we just finished dragging
                   if (didDragRef.current) {
@@ -1583,7 +1610,8 @@ export function Canvas({
               )}
             </div>
           );
-        })}
+        });
+        })()}
 
         {/* Spectral Selection Overlay */}
         <SpectralSelectionOverlay

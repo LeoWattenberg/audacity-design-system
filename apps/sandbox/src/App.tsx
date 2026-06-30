@@ -526,6 +526,11 @@ function CanvasDemoContent() {
 
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const trackHeaderScrollRef = React.useRef<HTMLDivElement>(null);
+  // Captures the menu button that opened the track context menu so
+  // focus can return there once the menu closes (after an item is
+  // picked or Escape). Shared between EditorLayout (writes the trigger)
+  // and AppContextMenus (reads it on close).
+  const trackMenuTriggerRef = React.useRef<HTMLElement | null>(null);
   // Tracks the scrollTop value we most recently wrote to each scroller.
   // When the resulting echo scroll event arrives, its scrollTop matches
   // and we know to absorb it instead of syncing back, which avoids the
@@ -1740,6 +1745,7 @@ function CanvasDemoContent() {
           state={state}
           dispatch={dispatch}
           activeMenuItem={activeMenuItem}
+          trackMenuTriggerRef={trackMenuTriggerRef}
           scrollX={scrollX}
           scrollY={scrollY}
           onScroll={handleScroll}
@@ -1981,6 +1987,7 @@ function CanvasDemoContent() {
         tracks={state.tracks}
         masterEffects={state.masterEffects}
         dispatch={dispatch}
+        trackMenuTriggerRef={trackMenuTriggerRef}
         timelineFormat={timelineFormat}
         setTimelineFormat={setTimelineFormat}
         updateDisplayWhilePlaying={updateDisplayWhilePlaying}

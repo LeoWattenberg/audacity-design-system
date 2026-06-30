@@ -42,7 +42,8 @@ export function createMenuDefinitions(deps: MenuDefinitionDeps): Record<string, 
   const fileMenuItems: MenuItem[] = [
     {
       label: 'Import',
-      shortcut: 'Ctrl+I',
+      // Cmd+I now splits the focused clip at the playhead — Import is
+      // reachable via this menu item until we pick a new binding.
       onClick: deps.onImportAudio,
     },
     {

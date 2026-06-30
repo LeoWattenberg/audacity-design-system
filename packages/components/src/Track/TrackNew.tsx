@@ -118,6 +118,8 @@ export interface TrackProps {
    * Callback when a clip is clicked
    */
   onClipClick?: (clipId: string | number, shiftKey?: boolean, metaKey?: boolean) => void;
+  /** Callback when the user commits a clip rename inline. */
+  onClipRename?: (clipId: string | number, newName: string) => void;
 
   /**
    * Callback when track background is clicked
@@ -343,6 +345,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
   width,
   backgroundColor = 'rgba(255,255,255,0.05)',
   onClipClick,
+  onClipRename,
   onTrackClick,
   onEnvelopePointsChange,
   onClipHeaderClick,
@@ -561,9 +564,16 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               const dy = e.clientY - downPos.y;
               if (dx * dx + dy * dy > 9) return; // >3px = drag, not click
             }
-            // Cmd / Ctrl is the host app's grab-to-pan modifier — never
-            // treat it as an additive-selection click here.
-            if (e.metaKey || e.ctrlKey) return;
+            // Cmd / Ctrl on a clip body toggles the clip in/out of the
+            // selection (additive multi-select). Cmd is also the
+            // canvas-background grab-to-pan modifier, but pan only
+            // engages on a drag — a quick click without movement
+            // falls through to here and should manipulate selection.
+            if (e.metaKey || e.ctrlKey) {
+              e.stopPropagation();
+              onClipClick?.(clip.id, false, true);
+              return;
+            }
             // Body clicks place the cursor (handled by time selection system),
             // not select the clip. Only Shift body clicks trigger clip selection.
             if (e.shiftKey) {
@@ -767,6 +777,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             midiNotes={clip.midiNotes}
             forceHeaderHover={isClipHovered}
             onHeaderClick={(shiftKey, metaKey) => onClipClick?.(clip.id, shiftKey, metaKey)}
+            onRename={onClipRename ? (newName) => onClipRename(clip.id, newName) : undefined}
             onMenuClick={(x, y) => onClipMenuClick?.(clip.id, x, y)}
             onTrimEdge={
               onClipTrimEdge
@@ -1021,7 +1032,11 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               e.preventDefault();
               e.stopPropagation();
               if (!isContainerFocused && trackClickXRef.current !== null) {
-                // Invisible focus from mouse click — Tab to nearest clip
+                // Invisible focus from mouse click — Tab to nearest
+                // clip on the track. When the track has no clips,
+                // fall through to the keyboard branch so the user
+                // still moves somewhere instead of getting a silent
+                // no-op.
                 const clipElements = trackRef.current?.querySelectorAll('[data-clip-id]');
                 if (clipElements && clipElements.length > 0) {
                   const clickX = trackClickXRef.current;
@@ -1038,6 +1053,17 @@ const TrackNewComponent: React.FC<TrackProps> = ({
                   });
                   trackClickXRef.current = null;
                   (clipElements[nearestIdx] as HTMLElement).focus();
+                } else {
+                  // No clips → promote to keyboard-focus on the track
+                  // itself so the user can see the focus state, then
+                  // let the next Tab walk into the panel.
+                  trackClickXRef.current = null;
+                  const node = trackRef.current;
+                  if (node) {
+                    node.setAttribute('data-focus-from-nav', '1');
+                    node.blur();
+                    node.focus();
+                  }
                 }
               } else {
                 // Visible keyboard focus — Tab enters panel controls

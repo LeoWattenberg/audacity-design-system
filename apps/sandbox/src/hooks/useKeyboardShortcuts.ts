@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { TracksState, TracksAction } from '../contexts/TracksContext';
-import { scrollIntoViewIfNeeded, usePreferences } from '@dilsonspickles/components';
+import { scrollIntoViewIfNeeded, usePreferences, announce, formatTimeForA11y } from '@dilsonspickles/components';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
 import type { EffectsPanelState } from './useContextMenuState';
 import { handleCopy, handleCut, handlePaste } from './handlers/clipboardHandlers';
@@ -53,6 +53,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     setSelectionAnchor,
     selectionAnchorRef,
     selectionEdgesRef,
+    effectsPanel,
     setEffectsPanel,
     clipboard,
     setClipboard,
@@ -65,6 +66,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
 
   // Track whether the user is navigating via keyboard or mouse.
   const isKeyboardNavigatingRef = useRef(false);
+
+  // Remembered focus origin from the last E-key open of the effects
+  // panel — restored when the next E-key press closes it. Persisted
+  // outside React state so it survives re-renders without spam.
+  const effectsPanelFocusOriginRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const handleMouseDown = () => { isKeyboardNavigatingRef.current = false; };
@@ -122,6 +128,24 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           e.preventDefault();
           if (hasTimeSelection) handleEscape(playheadDeps);
           if (hasSelectedClips) dispatch({ type: 'DESELECT_ALL_CLIPS' });
+          return;
+        }
+        // After time-selection / clip-selection are clear, the next
+        // Escape narrows a multi-track selection down to just the
+        // focused track. Focused-in-selection → keep only focused;
+        // focused-out-of-selection → wipe the selection entirely
+        // (matches the Model 3 spirit — the user is "away" from it).
+        const selectedTrackIndices = state.selectedTrackIndices || [];
+        if (selectedTrackIndices.length > 1) {
+          e.preventDefault();
+          const fti = state.focusedTrackIndex;
+          const focusedInSelection =
+            fti !== null && fti !== undefined && selectedTrackIndices.includes(fti);
+          dispatch({
+            type: 'SET_SELECTED_TRACKS',
+            payload: focusedInSelection && fti !== null && fti !== undefined ? [fti] : [],
+          });
+          setSelectionAnchor(focusedInSelection ? (fti as number) : null);
           return;
         }
         // Progressive Escape:
@@ -214,16 +238,54 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         }
       }
 
-      // --- E: Effects panel ---
+      // --- E: Toggle effects panel ---
+      // Panel closed → remember whatever the user was focused on, open
+      //   the panel for the focused track, Add-effect button auto-
+      //   focuses on mount.
+      // Panel open  → close the panel and restore focus to whatever
+      //   the user had before opening it (a clip, the track wrapper,
+      //   a button — whatever).
       if (e.key === 'e' || e.key === 'E') {
         const target = e.target as HTMLElement;
         const isTextInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
           target.getAttribute('role') === 'textbox' || target.getAttribute('contenteditable') === 'true';
-        if (!isTextInput) {
-          e.preventDefault();
-          handleEffectsToggle(transportDeps);
+        if (isTextInput) return;
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        e.preventDefault();
+
+        if (effectsPanel?.isOpen) {
+          const origin = effectsPanelFocusOriginRef.current;
+          effectsPanelFocusOriginRef.current = null;
+          const fallbackTrackIndex = effectsPanel.trackIndex;
+          setEffectsPanel(null);
+          setTimeout(() => {
+            // Guard against the element being detached (e.g. clip was
+            // deleted while the panel was open). Fall back to the
+            // track wrapper of the panel's owning track.
+            if (origin && document.contains(origin)) {
+              origin.focus();
+              return;
+            }
+            const trackEl = document.querySelector<HTMLElement>(
+              `.track-wrapper[data-track-index="${fallbackTrackIndex}"] .track`,
+            );
+            if (trackEl) {
+              trackEl.setAttribute('data-focus-from-nav', '1');
+              trackEl.focus();
+            }
+          }, 0);
           return;
         }
+
+        // Capture whatever the user is focused on RIGHT NOW, before
+        // the panel takes focus — that's what we restore when E
+        // closes it.
+        effectsPanelFocusOriginRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        handleEffectsToggle(transportDeps);
+        return;
       }
 
       // --- S: Toggle split tool (bare key, no modifiers) ---
@@ -236,6 +298,63 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
           dispatch({ type: 'SET_SPLIT_MODE', payload: !state.splitMode });
           return;
         }
+      }
+
+      // --- Shift+S / Shift+U: Solo / Mute the focused track ---
+      // Mirrors the M / S buttons in the track-control-panel header.
+      // Falls back to the selection when the focused track is part of
+      // it (Model 3): focused-in-selection toggles every selected
+      // track in lock-step, otherwise just the focused one.
+      if (
+        e.shiftKey
+        && !e.metaKey
+        && !e.ctrlKey
+        && !e.altKey
+        && (e.key === 'S' || e.key === 's' || e.key === 'U' || e.key === 'u')
+      ) {
+        const target = e.target as HTMLElement;
+        const tag = target.tagName;
+        const isTextInput = tag === 'INPUT' || tag === 'TEXTAREA'
+          || target.getAttribute('role') === 'textbox'
+          || target.getAttribute('contenteditable') === 'true';
+        if (isTextInput) return;
+        const fti = state.focusedTrackIndex;
+        if (fti === null || fti === undefined) return;
+        e.preventDefault();
+        const isSolo = e.key === 'S' || e.key === 's';
+        const focusInSelection = (state.selectedTrackIndices || []).includes(fti);
+        const trackIndices = focusInSelection
+          ? state.selectedTrackIndices
+          : [fti];
+        for (const ti of trackIndices) {
+          const t = state.tracks[ti] as any;
+          if (!t) continue;
+          const newValue = isSolo ? !(t.soloed ?? false) : !(t.muted ?? false);
+          dispatch({
+            type: 'UPDATE_TRACK',
+            payload: {
+              index: ti,
+              track: isSolo ? { soloed: newValue } : { muted: newValue },
+            },
+          });
+          if (!isSolo) {
+            if (newValue) {
+              audioManagerRef.current?.setTrackMuted?.(ti, true);
+            } else {
+              audioManagerRef.current?.setTrackGain?.(ti, (t.gain ?? 75) as number);
+            }
+          }
+        }
+        // Announce so screen-reader users hear the toggle land.
+        const action = isSolo ? 'Solo' : 'Mute';
+        if (trackIndices.length === 1) {
+          const t = state.tracks[trackIndices[0]] as any;
+          const newValue = isSolo ? !(t.soloed ?? false) : !(t.muted ?? false);
+          announce(`${action} ${newValue ? 'on' : 'off'}`);
+        } else {
+          announce(`${action} toggled on ${trackIndices.length} tracks`);
+        }
+        return;
       }
 
       // --- L: Loop region (bare key, no Cmd/Ctrl — those are reserved for
@@ -261,7 +380,65 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
       // --- ArrowUp/Down: Track focus ---
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         const target = e.target as HTMLElement;
-        if (target.closest('[role="toolbar"], [role="group"], [role="menubar"], [role="region"], [role="menu"]') || target.hasAttribute('data-clip-id')) {
+        if (target.hasAttribute('data-clip-id')) {
+          return;
+        }
+        // Vertical rulers own their own ArrowUp/Down (step ruler-by-
+        // ruler). Don't steal them via the single-item-group fall-
+        // through logic below.
+        if (target.hasAttribute('data-track-ruler-index')) {
+          return;
+        }
+        const groupAncestor = target.closest(
+          '[role="toolbar"], [role="group"], [role="menubar"], [role="region"], [role="menu"]',
+        ) as HTMLElement | null;
+        if (groupAncestor) {
+          // Track-control-panel children (Pan / Volume slots, mute /
+          // solo, etc.) live inside the panel's own arrow-nav scope
+          // — the panel handles ArrowUp/Down to step between siblings
+          // and ArrowLeft/Right to cycle. We must NOT steal those
+          // arrows even when the immediate group only contains one
+          // focusable (the Pan slot wraps a single Knob, but stepping
+          // out of the slot should land on the next panel sibling,
+          // not jump to a new track).
+          if (target.closest('.track-control-panel')) {
+            return;
+          }
+          // Multi-item tab groups own arrows for their internal nav —
+          // we mustn't steal them. Single-item groups (e.g. the
+          // "Add new" button, the timeline ruler) should fall through
+          // and let the user arrow straight into the track list.
+          const focusables = Array.from(
+            groupAncestor.querySelectorAll<HTMLElement>(
+              'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+          if (focusables.length > 1) {
+            return;
+          }
+          // Single-item group → jump to the first / last track since
+          // we're entering the track list from outside, not stepping
+          // from an existing focused track.
+          if (state.tracks.length === 0) return;
+          e.preventDefault();
+          const targetIndex = e.key === 'ArrowDown' ? 0 : state.tracks.length - 1;
+          dispatch({ type: 'SET_FOCUSED_TRACK', payload: targetIndex });
+          if (preferences.trackSelectionMode === 'follows-focus') {
+            dispatch({ type: 'SELECT_TRACK', payload: targetIndex });
+            setSelectionAnchor(targetIndex);
+          }
+          // Defer DOM focus so React renders the new focusedTrackIndex
+          // first; otherwise the track wrapper's onFocus logic sees a
+          // stale state.
+          setTimeout(() => {
+            const trackEl = document.querySelector(
+              `.track-wrapper[data-track-index="${targetIndex}"] .track`,
+            ) as HTMLElement | null;
+            if (trackEl) {
+              trackEl.setAttribute('data-focus-from-nav', '1');
+              trackEl.focus();
+            }
+          }, 0);
           return;
         }
         e.preventDefault();
@@ -283,27 +460,189 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         if (isTextInput) return;
         e.preventDefault();
         const isLeftward = e.key === 'j' || e.key === 'J';
+
+        const fti = state.focusedTrackIndex;
+        const trackForBounds =
+          fti !== null && fti !== undefined ? state.tracks[fti] : null;
+
         if (e.shiftKey) {
-          // Fine nudge (the previous default behaviour).
-          handlePlayheadMove(e, isLeftward, 0.1, playheadDeps);
-        } else {
-          // Jump to project bounds.
-          let targetTime = 0;
-          if (!isLeftward) {
-            for (const t of state.tracks) {
-              for (const c of t.clips) {
-                const end = c.start + c.duration;
-                if (end > targetTime) targetTime = end;
+          // Shift+J / Shift+K → jump the playhead to the previous /
+          // next clip edge (start or end of any clip) on the focused
+          // track. Provides "snap to clip boundary" navigation.
+          if (!trackForBounds) return;
+          const allClips = [
+            ...(trackForBounds.clips || []),
+            ...((trackForBounds.midiClips as any[]) || []),
+          ];
+          if (allClips.length === 0) return;
+          // Collect every edge, dedupe so coincident start/end pairs
+          // don't make the playhead stick.
+          const edges = Array.from(
+            new Set<number>(
+              allClips.flatMap((c: any) => [c.start, c.start + c.duration]),
+            ),
+          ).sort((a, b) => a - b);
+          const playhead = state.playheadPosition;
+          const EPSILON = 0.0001;
+          let target: number | null = null;
+          if (isLeftward) {
+            for (let i = edges.length - 1; i >= 0; i--) {
+              if (edges[i] < playhead - EPSILON) {
+                target = edges[i];
+                break;
               }
-              for (const c of (t.midiClips || [])) {
-                const end = c.start + c.duration;
-                if (end > targetTime) targetTime = end;
+            }
+          } else {
+            for (const edge of edges) {
+              if (edge > playhead + EPSILON) {
+                target = edge;
+                break;
               }
             }
           }
-          dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: targetTime });
-          scrollPlayheadIntoView();
+          if (target !== null) {
+            dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: target });
+            scrollPlayheadIntoView();
+          }
+          return;
         }
+
+        // Plain J / K → jump to the edge of the focused track's clip
+        // cluster:
+        //   J → start of the earliest clip on that track
+        //   K → end of the latest clip on that track
+        // Falls back to the equivalent project-wide bound when no
+        // track is focused, so the shortcut still does something
+        // sensible from a fresh load.
+        let targetTime = 0;
+        if (trackForBounds) {
+          const allClips = [
+            ...(trackForBounds.clips || []),
+            ...((trackForBounds.midiClips as any[]) || []),
+          ];
+          if (allClips.length > 0) {
+            targetTime = isLeftward
+              ? Math.min(...allClips.map((c: any) => c.start))
+              : Math.max(...allClips.map((c: any) => c.start + c.duration));
+          }
+        } else if (!isLeftward) {
+          // Project end fallback when no focused track.
+          for (const t of state.tracks) {
+            for (const c of t.clips) {
+              const end = c.start + c.duration;
+              if (end > targetTime) targetTime = end;
+            }
+            for (const c of (t.midiClips || [])) {
+              const end = c.start + c.duration;
+              if (end > targetTime) targetTime = end;
+            }
+          }
+        }
+        dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: targetTime });
+        scrollPlayheadIntoView();
+        return;
+      }
+
+      // --- ArrowLeft / ArrowRight: nudge the playhead ---
+      // Plain arrow → 0.1 s playhead nudge.
+      // Shift + arrow → extend the time selection by 0.1 s in that
+      //                 direction (creates one at the playhead when
+      //                 none exists).
+      // Cmd/Ctrl + arrow → "move whatever's under the gesture":
+      //   - a focused clip (handled by the clip's own keydown)
+      //   - clips a time selection overlaps on the selected tracks
+      //   - otherwise no-op so the gesture never silently turns into
+      //     a playhead jump. , / . own the 1 s playhead jump.
+      // Cmd+Shift + arrow → extend the time selection by 1 s.
+      //
+      // Fires when nothing else has claimed the arrow:
+      //   - Element-level handlers that own arrows (clip nav in non-
+      //     flat mode, Knob / range slider) call preventDefault, and
+      //     defaultPrevented short-circuits us out.
+      //   - In flat-nav mode the clip / track wrappers don't intercept
+      //     plain arrows so we naturally pick them up and move the
+      //     playhead.
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (e.defaultPrevented) return;
+        if (e.altKey) return; // Alt+Arrow is reserved for stretch / reorder
+        const target = e.target as HTMLElement;
+        const tag = target.tagName;
+        // Skip when the focused element owns arrow keys for its own
+        // value adjustment / text editing.
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (target.getAttribute('role') === 'slider') return;
+        if (target.getAttribute('contenteditable') === 'true') return;
+
+        const isLeftward = e.key === 'ArrowLeft';
+        const cmdHeld = e.metaKey || e.ctrlKey;
+
+        // Cmd+Arrow on a time selection that overlaps any clips:
+        // move the clips together with the selection. Mirrors the
+        // Cmd+Arrow-on-focused-clip behaviour so the gesture means
+        // the same thing whether you're "on" a clip or "around" some
+        // clips. We scope the search to the selected tracks (or the
+        // focused track when nothing's selected) so a wide time
+        // selection across the whole canvas doesn't accidentally
+        // sweep up clips on tracks the user never targeted. When the
+        // time selection doesn't touch any clip on the scoped tracks
+        // we fall through to the playhead-jump path.
+        if (
+          cmdHeld
+          && !e.shiftKey
+          && state.timeSelection
+          && !target.closest('[data-clip-id]')
+        ) {
+          const { startTime, endTime } = state.timeSelection;
+          const EPS = 0.0001;
+          const scopedTrackIndices = state.selectedTrackIndices?.length
+            ? state.selectedTrackIndices
+            : state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined
+              ? [state.focusedTrackIndex]
+              : [];
+          type Overlap = { trackIndex: number; clipId: number };
+          const overlapping: Overlap[] = [];
+          for (const ti of scopedTrackIndices) {
+            const t = state.tracks[ti];
+            if (!t) continue;
+            for (const c of (t.clips || []) as any[]) {
+              if (c.start < endTime - EPS && c.start + c.duration > startTime + EPS) {
+                overlapping.push({ trackIndex: ti, clipId: c.id });
+              }
+            }
+          }
+          if (overlapping.length > 0) {
+            e.preventDefault();
+            const delta = isLeftward ? -0.1 : 0.1;
+            // Make the overlapping set the active selection so the
+            // existing MOVE_SELECTED_CLIPS reducer moves them in one
+            // shot and they stay selected for follow-up gestures.
+            dispatch({ type: 'SELECT_CLIPS', payload: overlapping });
+            dispatch({
+              type: 'MOVE_SELECTED_CLIPS',
+              payload: { deltaSeconds: delta },
+            });
+            // Slide the time-selection by the same delta so it stays
+            // anchored to the clips it moved.
+            dispatch({
+              type: 'SET_TIME_SELECTION',
+              payload: {
+                startTime: Math.max(0, startTime + delta),
+                endTime: Math.max(0, endTime + delta),
+              },
+            });
+            return;
+          }
+        }
+
+        // Cmd+Arrow is now strictly "move the thing under the
+        // gesture" — focused clip, time-selection clips, otherwise
+        // do nothing. The 1 s playhead jump lives on , / . so that
+        // shortcut never silently changes meaning.
+        if (cmdHeld) {
+          return;
+        }
+        e.preventDefault();
+        handlePlayheadMove(e, isLeftward, 0.1, playheadDeps);
         return;
       }
 
@@ -348,6 +687,211 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         handleDeleteTimeRange(playheadDeps);
+        return;
+      }
+
+      // --- Cmd/Ctrl+I: Split clip(s) at the playhead ---
+      // Mirrors the Model-3 delete rule: focus disambiguates the
+      // selection. Resolve the user's intent in two steps:
+      //   a) Find the focused "thing" — the DOM-focused clip if any,
+      //      otherwise the clip on the focused track that sits under
+      //      the playhead.
+      //   b) Check whether that focused thing is part of the current
+      //      selection (track multi-select or clip multi-select).
+      //      If YES → split the whole selection (every selected clip
+      //               plus every selected track's clip under the
+      //               playhead — they fan out from focus).
+      //      If NO  → split only the focused thing. The user has
+      //               navigated away from the selection, so they
+      //               clearly mean to act on the focused item.
+      // Cmd+Shift+I (handled below) is the explicit "every track"
+      // gesture and ignores selection entirely.
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I') && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+
+        type Target = { trackIndex: number; clip: any };
+        const playhead = state.playheadPosition;
+        const EDGE_EPSILON = 0.0001;
+
+        const findClipUnderPlayhead = (trackIndex: number) => {
+          const t = state.tracks[trackIndex];
+          return t?.clips.find(
+            (c: any) =>
+              playhead > c.start + EDGE_EPSILON
+              && playhead < c.start + c.duration - EDGE_EPSILON,
+          );
+        };
+
+        // a) Resolve focus.
+        let focusedClip: { trackIndex: number; clip: any } | null = null;
+        const active = document.activeElement as HTMLElement | null;
+        const focusedWrapper = active?.closest('[data-clip-id]') as HTMLElement | null;
+        if (focusedWrapper) {
+          const clipIdAttr = focusedWrapper.getAttribute('data-clip-id');
+          const trackIdxAttr = focusedWrapper.getAttribute('data-track-index');
+          if (clipIdAttr && trackIdxAttr) {
+            const ti = Number(trackIdxAttr);
+            const c = state.tracks[ti]?.clips.find((cc: any) => String(cc.id) === clipIdAttr);
+            if (c) focusedClip = { trackIndex: ti, clip: c };
+          }
+        }
+        const focusedTrackIndex = state.focusedTrackIndex;
+        let focusedTrackTarget: { trackIndex: number; clip: any } | null = null;
+        if (
+          focusedClip === null
+          && focusedTrackIndex !== null
+          && focusedTrackIndex !== undefined
+        ) {
+          const c = findClipUnderPlayhead(focusedTrackIndex);
+          if (c) focusedTrackTarget = { trackIndex: focusedTrackIndex, clip: c };
+        }
+
+        // b) Is the focused thing part of the selection?
+        const selectedTrackIndices = state.selectedTrackIndices || [];
+        const hasTrackSelection = selectedTrackIndices.length > 0;
+        const hasClipSelection = state.tracks.some((t: any) => t.clips.some((c: any) => c.selected));
+
+        const focusInTrackSelection =
+          focusedTrackTarget !== null
+          && selectedTrackIndices.includes(focusedTrackTarget.trackIndex);
+        const focusedClipIsSelected =
+          focusedClip !== null && (focusedClip.clip as any).selected === true;
+
+        // Special case: there is a selection but no focus anywhere
+        // (e.g. user clicked to multi-select then moved away with the
+        // mouse but never set focus). In that case fall back to acting
+        // on the selection — the user clearly meant SOMETHING.
+        const noFocus = focusedClip === null && focusedTrackTarget === null;
+
+        const targets: Target[] = [];
+        const pushIfNew = (trackIndex: number, clip: any) => {
+          if (!targets.some((x) => x.trackIndex === trackIndex && x.clip.id === clip.id)) {
+            targets.push({ trackIndex, clip });
+          }
+        };
+
+        const useSelection =
+          (focusedClipIsSelected && hasClipSelection)
+          || (focusInTrackSelection && hasTrackSelection)
+          || (noFocus && (hasClipSelection || hasTrackSelection));
+
+        if (useSelection) {
+          // Selected clips
+          state.tracks.forEach((t: any, ti: number) => {
+            t.clips.forEach((c: any) => {
+              if (c.selected) pushIfNew(ti, c);
+            });
+          });
+          // Selected tracks → clip under playhead
+          for (const ti of selectedTrackIndices) {
+            const c = findClipUnderPlayhead(ti);
+            if (c) pushIfNew(ti, c);
+          }
+        } else if (focusedClip) {
+          pushIfNew(focusedClip.trackIndex, focusedClip.clip);
+        } else if (focusedTrackTarget) {
+          pushIfNew(focusedTrackTarget.trackIndex, focusedTrackTarget.clip);
+        }
+
+        if (targets.length === 0) {
+          announce('Move the playhead inside a clip on the focused track to split it.');
+          return;
+        }
+
+        const mutations: any[] = [];
+        let lastDescription = '';
+        for (const { trackIndex, clip } of targets) {
+          const start = clip.start;
+          const end = clip.start + clip.duration;
+          // Use the playhead when it's inside the clip; otherwise fall
+          // back to the clip's midpoint so the shortcut still does
+          // something useful when the user hasn't moved the cursor.
+          const within = playhead > start + EDGE_EPSILON && playhead < end - EDGE_EPSILON;
+          const splitAt = within ? playhead : start + (end - start) / 2;
+          mutations.push({
+            type: 'split',
+            clipId: clip.id,
+            trackIndex,
+            leftEnd: splitAt,
+            rightStart: splitAt,
+          });
+          lastDescription = within
+            ? `at the playhead. Left ${formatTimeForA11y(splitAt - start)}, right ${formatTimeForA11y(end - splitAt)}`
+            : `at the midpoint. Left ${formatTimeForA11y(splitAt - start)}, right ${formatTimeForA11y(end - splitAt)}`;
+        }
+
+        dispatch({
+          type: 'APPLY_CLIP_PLACEMENT',
+          payload: { placements: [], mutations },
+        });
+
+        // The split reducer keeps the original clip id on the left
+        // segment, so the mutation's clipId points to it. Match the
+        // mouse-driven split tool by re-selecting every left piece
+        // — the user's "current" clips after the cut.
+        dispatch({
+          type: 'SELECT_CLIPS',
+          payload: mutations.map((m: any) => ({
+            trackIndex: m.trackIndex,
+            clipId: m.clipId,
+          })),
+        });
+
+        if (targets.length === 1) {
+          announce(`Clip split ${lastDescription}.`);
+        } else {
+          announce(`${targets.length} clips split.`);
+        }
+        return;
+      }
+
+      // --- Cmd/Ctrl+Shift+I: Slice every track at the playhead ---
+      // Keyboard equivalent of Shift+click in split mode: walk every
+      // track and split whichever clip the playhead currently sits
+      // inside. No-ops on tracks where the playhead doesn't intersect
+      // any clip.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'i' || e.key === 'I') && !e.altKey) {
+        e.preventDefault();
+
+        const playhead = state.playheadPosition;
+        const EDGE_EPSILON = 0.0001;
+        const mutations: any[] = [];
+        state.tracks.forEach((t: any, ti: number) => {
+          t.clips.forEach((c: any) => {
+            if (playhead > c.start + EDGE_EPSILON && playhead < c.start + c.duration - EDGE_EPSILON) {
+              mutations.push({
+                type: 'split',
+                clipId: c.id,
+                trackIndex: ti,
+                leftEnd: playhead,
+                rightStart: playhead,
+              });
+            }
+          });
+        });
+
+        if (mutations.length === 0) {
+          announce('Playhead is not inside any clip.');
+          return;
+        }
+
+        dispatch({
+          type: 'APPLY_CLIP_PLACEMENT',
+          payload: { placements: [], mutations },
+        });
+        // Match the mouse split tool by selecting each left segment
+        // — the original clipId points to the left piece after the
+        // split reducer runs.
+        dispatch({
+          type: 'SELECT_CLIPS',
+          payload: mutations.map((m: any) => ({
+            trackIndex: m.trackIndex,
+            clipId: m.clipId,
+          })),
+        });
+        announce(
+          `${mutations.length} ${mutations.length === 1 ? 'clip' : 'clips'} split at the playhead across all tracks.`,
+        );
         return;
       }
 
@@ -434,29 +978,122 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         return;
       }
 
-      // --- Ctrl+D: Duplicate focused track ---
+      // --- Ctrl+D: Duplicate the focused clip(s) or track(s) ---
+      // Mirrors the Model-3 rule used by delete and split. Tries clip
+      // duplication first when focus is on a clip; otherwise falls
+      // through to track duplication.
       if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+        // Clip duplication path — when DOM focus is on a clip.
+        const active = document.activeElement as HTMLElement | null;
+        const focusedWrapper = active?.closest('[data-clip-id]') as HTMLElement | null;
+        if (focusedWrapper) {
+          const clipIdAttr = focusedWrapper.getAttribute('data-clip-id');
+          const trackIdxAttr = focusedWrapper.getAttribute('data-track-index');
+          if (clipIdAttr && trackIdxAttr) {
+            e.preventDefault();
+            const fti = Number(trackIdxAttr);
+            const focusedClip = state.tracks[fti]?.clips.find(
+              (c: any) => String(c.id) === clipIdAttr,
+            );
+            if (!focusedClip) return;
+
+            // Model 3: focused-in-selection → duplicate selection;
+            // focused-out-of-selection → duplicate only focused.
+            type ClipTarget = { trackIndex: number; clip: any };
+            const targets: ClipTarget[] = [];
+            if ((focusedClip as any).selected) {
+              state.tracks.forEach((t: any, ti: number) => {
+                t.clips.forEach((c: any) => {
+                  if (c.selected) targets.push({ trackIndex: ti, clip: c });
+                });
+              });
+            } else {
+              targets.push({ trackIndex: fti, clip: focusedClip });
+            }
+
+            // Allocate fresh clip ids in one pass over all tracks.
+            let nextClipId = 1;
+            for (const t of state.tracks) {
+              for (const c of t.clips) if ((c as any).id >= nextClipId) nextClipId = (c as any).id + 1;
+            }
+
+            // Each duplicate starts immediately after its source clip
+            // — the user's request. Subsequent clips on the same track
+            // will overlap; resolveOverlap inside MOVE_CLIP / the
+            // placement reducer handles ripple if needed elsewhere.
+            const newSelectionIds: Array<{ trackIndex: number; clipId: number }> = [];
+            targets.forEach(({ trackIndex, clip }) => {
+              const dupId = nextClipId++;
+              const dup = {
+                ...clip,
+                id: dupId,
+                start: clip.start + clip.duration,
+                selected: true,
+                sourceClipId: (clip as any).sourceClipId ?? clip.id,
+              };
+              dispatch({
+                type: 'ADD_CLIP',
+                payload: { trackIndex, clip: dup as any },
+              });
+              newSelectionIds.push({ trackIndex, clipId: dupId });
+            });
+
+            // Make the new duplicates the active selection.
+            dispatch({ type: 'SELECT_CLIPS', payload: newSelectionIds });
+            announce(
+              targets.length === 1
+                ? 'Clip duplicated.'
+                : `${targets.length} clips duplicated.`,
+            );
+            return;
+          }
+        }
+
+        // Track duplication path — Model 3 applied to selectedTrackIndices.
         const focused = state.focusedTrackIndex;
         if (focused === null || focused === undefined) return;
         e.preventDefault();
-        const src = state.tracks[focused];
-        if (!src) return;
-        // Re-id clips so they don't collide with the source.
-        let nextClipId = Date.now();
-        const clonedClips = (src.clips ?? []).map((c: any) => ({
-          ...c,
-          id: nextClipId++,
-          sourceClipId: c.sourceClipId ?? c.id,
-        }));
-        dispatch({
-          type: 'ADD_TRACK',
-          payload: {
-            ...src,
-            id: nextIdAfterDeletes,
-            name: `${src.name} copy`,
-            clips: clonedClips,
-          } as any,
-        });
+
+        const selectedTrackIndices = state.selectedTrackIndices || [];
+        const focusInTrackSelection = selectedTrackIndices.includes(focused);
+        const trackIndices = focusInTrackSelection
+          ? [...selectedTrackIndices]
+          : [focused];
+
+        // Process from highest index down so each splice doesn't shift
+        // the indices we haven't visited yet.
+        trackIndices.sort((a, b) => b - a);
+
+        let nextClipId = 1;
+        for (const t of state.tracks) {
+          for (const c of t.clips) if ((c as any).id >= nextClipId) nextClipId = (c as any).id + 1;
+        }
+        let nextTrackId = nextIdAfterDeletes;
+
+        for (const ti of trackIndices) {
+          const src = state.tracks[ti];
+          if (!src) continue;
+          const clonedClips = (src.clips ?? []).map((c: any) => ({
+            ...c,
+            id: nextClipId++,
+            sourceClipId: c.sourceClipId ?? c.id,
+          }));
+          dispatch({
+            type: 'ADD_TRACK',
+            payload: {
+              ...src,
+              id: nextTrackId++,
+              name: `${src.name} copy`,
+              clips: clonedClips,
+              insertAt: ti + 1,
+            } as any,
+          });
+        }
+        announce(
+          trackIndices.length === 1
+            ? 'Track duplicated.'
+            : `${trackIndices.length} tracks duplicated.`,
+        );
         return;
       }
 
@@ -520,5 +1157,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     isFlatNavigation,
     toggleLoopRegion,
     preferences.trackSelectionMode,
+    effectsPanel,
   ]);
 }

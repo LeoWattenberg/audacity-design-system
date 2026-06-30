@@ -164,6 +164,27 @@
   outline-offset: 2px;
 }
 
+/* Inline rename input — sits in place of the name text. */
+.track-control-panel__track-name-input {
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--tcp-text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--tcp-focus-color);
+  border-radius: 2px;
+  padding: 1px 4px;
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+  font-family: inherit;
+  outline: none;
+}
+
+.track-control-panel__track-name-input:focus {
+  outline: 2px solid var(--tcp-focus-color);
+  outline-offset: 0;
+}
+
 .track-control-panel__header-right {
   display: flex;
   gap: 4px;

@@ -26,6 +26,10 @@ export interface TrackControlPanelProps {
   onSoloToggle?: () => void;
   onEffectsClick?: () => void;
   onAddLabelClick?: () => void;
+  /** Called when the user commits a new track name. Enter / F2 /
+   * double-click on the name text starts the inline edit; Enter
+   * commits, Escape cancels. */
+  onRename?: (newName: string) => void;
   /** Available MIDI instruments (shown for MIDI tracks) */
   instruments?: Array<{ id: string; label: string }>;
   /** Currently selected instrument id */
@@ -79,6 +83,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
   onSoloToggle,
   onEffectsClick,
   onAddLabelClick,
+  onRename,
   instruments,
   instrument,
   onInstrumentChange,
@@ -120,6 +125,58 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
   const { activeProfile } = useAccessibilityProfile();
   const isFlatNavigation = activeProfile.config.tabNavigation === 'sequential';
   const childTabIndex = isFlatNavigation ? 0 : -1;
+
+  // Inline rename. Enter / F2 / double-click on the name text drops
+  // an input in its place; Enter or blur commits, Escape cancels.
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(trackName);
+  const renameInputRef = React.useRef<HTMLInputElement>(null);
+  const nameSpanRef = React.useRef<HTMLSpanElement>(null);
+  // Set true when commit/cancel finishes, watched by an effect that
+  // focuses the freshly-remounted name span. We can't focus the
+  // pre-edit span DOM node directly — switching out of rename mode
+  // unmounts that node, so React mounts a new one with a new ref,
+  // and we have to wait for the post-render commit to focus it.
+  const focusReturnRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (isRenaming) {
+      // Focus + select on the next paint so React mounts the input
+      // before the focus call.
+      const t = window.setTimeout(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      }, 0);
+      return () => window.clearTimeout(t);
+    }
+    if (focusReturnRef.current) {
+      focusReturnRef.current = false;
+      nameSpanRef.current?.focus();
+    }
+  }, [isRenaming]);
+
+  React.useEffect(() => {
+    if (!isRenaming) setRenameDraft(trackName);
+  }, [trackName, isRenaming]);
+
+  const startRename = () => {
+    if (!onRename) return;
+    setRenameDraft(trackName);
+    setIsRenaming(true);
+  };
+
+  const commitRename = () => {
+    const next = renameDraft.trim();
+    if (next && next !== trackName) onRename?.(next);
+    focusReturnRef.current = true;
+    setIsRenaming(false);
+  };
+
+  const cancelRename = () => {
+    setRenameDraft(trackName);
+    focusReturnRef.current = true;
+    setIsRenaming(false);
+  };
 
   // Calculate volume slider position
   const volumePercent = volume;
@@ -196,8 +253,11 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
 
       if (isInsideSlot) {
         // Inside a control, let arrow keys flow to the control itself.
-        // Escape pops focus back out to the slot. Tab still leaves.
-        if (e.key === 'Escape') {
+        // Escape pops focus back out to the slot. Enter does the same
+        // — once the user is happy with the value they've dialed in,
+        // a confirm gesture should return them to the slot so the
+        // panel's arrow nav is usable again. Tab still leaves.
+        if (e.key === 'Escape' || e.key === 'Enter') {
           e.preventDefault();
           e.stopPropagation();
           slotAncestor?.focus();
@@ -319,7 +379,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
     // buttons/inputs are too — but only when NOT inside a slot, since
     // those inner controls are reached via Enter on the slot.
     const allCandidates = panelElement.querySelectorAll(
-      '[data-tcp-slot], button, input, [tabindex]:not([tabindex="-1"])'
+      '[data-tcp-slot], button, input, .track-control-panel__track-name-text, [tabindex]:not([tabindex="-1"])'
     );
     const focusableElements = Array.from(allCandidates).filter((el) => {
       if (el.hasAttribute('data-tcp-slot')) return true;
@@ -411,17 +471,44 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
             >
               <Icon name={getTrackIcon()} size={16} className="track-control-panel__icon" />
             </button>
-            {/* Rename interaction isn't wired yet, but the name needs a
-                Tab stop in flat-nav mode so the future rename action
-                slots in without re-shuffling the tab order. */}
-            <span
-              className="track-control-panel__track-name-text"
-              tabIndex={childTabIndex}
-              role="button"
-              aria-label={`Rename track: ${trackName}`}
-            >
-              {trackName}
-            </span>
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                className="track-control-panel__track-name-input"
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitRename();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelRename();
+                  }
+                }}
+                onBlur={commitRename}
+                aria-label="Track name"
+              />
+            ) : (
+              <span
+                ref={nameSpanRef}
+                className="track-control-panel__track-name-text"
+                tabIndex={childTabIndex}
+                role="button"
+                aria-label={`Rename track: ${trackName}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'F2') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startRename();
+                  }
+                }}
+                onDoubleClick={() => startRename()}
+              >
+                {trackName}
+              </span>
+            )}
           </div>
 
           <div className="track-control-panel__header-right">
