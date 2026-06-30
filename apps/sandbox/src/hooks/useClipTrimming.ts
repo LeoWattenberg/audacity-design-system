@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useTracksDispatch } from '../contexts/TracksContext';
 import { resolveOverlap, ClipPlacement } from '../utils/resolveOverlap';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
@@ -30,6 +30,10 @@ export interface UseClipTrimmingReturn {
   clipTrimStateRef: React.MutableRefObject<ClipTrimState | null>;
   startClipTrim: (trimState: ClipTrimState) => void;
   cancelTrim: () => void;
+  /** Time (in seconds) the active trim has snapped to, or null when no
+   *  trim is active / snap is off / Alt is held. Canvas reads this to
+   *  draw the snap guideline. */
+  snapGuidelineTime: number | null;
 }
 
 /**
@@ -52,6 +56,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
   const snapHysteresisRef = useRef<{ cursorXAtEngage: number } | null>(null);
   const SNAP_THRESHOLD_PX = 6;
   const SNAP_RELEASE_PX = 10;
+  const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
 
   const startClipTrim = (trimState: ClipTrimState) => {
     clipTrimStateRef.current = trimState;
@@ -61,6 +66,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
   const cancelTrim = () => {
     clipTrimStateRef.current = null;
     onTrimStatusChange?.(false);
+    setSnapGuidelineTime(null);
   };
 
   // Document-level mouse move and up for clip trimming
@@ -80,9 +86,11 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       // Calculate mouse position in timeline. Apply the user's snap
       // grid unless Alt is held (escape hatch for fine adjustments).
       const rawMouseTime = Math.max(0, (x - clipContentOffset) / pixelsPerSecond);
-      const mouseTime = (snapEnabled && snapOptions && !e.altKey)
-        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions))
+      const snapActive = snapEnabled && !!snapOptions && !e.altKey;
+      const mouseTime = snapActive
+        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions!))
         : rawMouseTime;
+      setSnapGuidelineTime(snapActive ? mouseTime : null);
 
       // Get initial state for all selected clips from stored Map
       const allClipsInitialState = trimState.allClipsInitialState;
@@ -370,5 +378,6 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
     clipTrimStateRef,
     startClipTrim,
     cancelTrim,
+    snapGuidelineTime,
   };
 }

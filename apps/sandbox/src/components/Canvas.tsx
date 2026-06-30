@@ -289,6 +289,7 @@ export function Canvas({
   // Clip trimming - extracted to custom hook
   const {
     clipTrimStateRef,
+    snapGuidelineTime: trimSnapGuidelineTime,
   } = useClipTrimming({
     containerRef,
     tracks,
@@ -303,6 +304,7 @@ export function Canvas({
     clipStretchStateRef,
     startClipStretch,
     wasJustStretching,
+    snapGuidelineTime: stretchSnapGuidelineTime,
   } = useClipStretching({
     containerRef,
     tracks,
@@ -311,6 +313,10 @@ export function Canvas({
     snapEnabled,
     snapOptions,
   });
+
+  // Whichever drag is active reports its snap target; we render at
+  // most one yellow guideline.
+  const snapGuidelineTime = trimSnapGuidelineTime ?? stretchSnapGuidelineTime;
 
   // Label dragging - extracted to custom hook (handles mouseup internally)
   useLabelDragging({
@@ -607,6 +613,26 @@ export function Canvas({
 
   return (
     <div className={`canvas-container${splitMode && splitHover ? ' canvas-container--split-mode' : ''}`} style={{ backgroundColor: bgColor, height: `${totalHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: splitMode && splitHover ? `url(${splitCursorUrl}) 14 10, crosshair` : 'text' } as React.CSSProperties}>
+      {/* Snap guideline — a 1px yellow vertical line at the snap target
+          of an in-progress trim or stretch. Spans the full canvas
+          height so the user can see which grid line each edge is
+          locking to. */}
+      {snapGuidelineTime !== null && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: `${CLIP_CONTENT_OFFSET + snapGuidelineTime * pixelsPerSecond}px`,
+            width: '1px',
+            backgroundColor: '#FFD60A',
+            boxShadow: '0 0 4px rgba(255, 214, 10, 0.6)',
+            pointerEvents: 'none',
+            zIndex: 11,
+          }}
+        />
+      )}
+
       {/* Split-tool preview line. Bare hover shows it spanning just the
           hovered track; Shift held extends it across all tracks. */}
       {splitMode && splitHover && (

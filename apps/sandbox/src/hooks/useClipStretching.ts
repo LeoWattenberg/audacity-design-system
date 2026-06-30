@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useTracksDispatch } from '../contexts/TracksContext';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
 
@@ -47,6 +47,8 @@ export interface UseClipStretchingReturn {
   startClipStretch: (stretchState: ClipStretchState) => void;
   cancelStretch: () => void;
   wasJustStretching: () => boolean;
+  /** Time (in seconds) the active stretch has snapped to. */
+  snapGuidelineTime: number | null;
 }
 
 const MIN_DURATION = 0.1; // never collapse below 100ms
@@ -60,6 +62,7 @@ export function useClipStretching(
   const dispatch = useTracksDispatch();
   const clipStretchStateRef = useRef<ClipStretchState | null>(null);
   const justStretchedRef = useRef(false);
+  const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
 
   const startClipStretch = (stretchState: ClipStretchState) => {
     clipStretchStateRef.current = stretchState;
@@ -67,6 +70,7 @@ export function useClipStretching(
 
   const cancelStretch = () => {
     clipStretchStateRef.current = null;
+    setSnapGuidelineTime(null);
   };
 
   const wasJustStretching = () => justStretchedRef.current;
@@ -79,9 +83,11 @@ export function useClipStretching(
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const rawMouseTime = Math.max(0, (x - clipContentOffset) / pixelsPerSecond);
-      const mouseTime = (snapEnabled && snapOptions && !e.altKey)
-        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions))
+      const snapActive = snapEnabled && !!snapOptions && !e.altKey;
+      const mouseTime = snapActive
+        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions!))
         : rawMouseTime;
+      setSnapGuidelineTime(snapActive ? mouseTime : null);
 
       // Compute the drag ratio from the DRAGGED clip's new vs initial
       // duration, then apply that same ratio to every selected clip.
@@ -151,5 +157,11 @@ export function useClipStretching(
     };
   }, [pixelsPerSecond, clipContentOffset, dispatch, containerRef, snapEnabled, snapOptions]);
 
-  return { clipStretchStateRef, startClipStretch, cancelStretch, wasJustStretching };
+  return {
+    clipStretchStateRef,
+    startClipStretch,
+    cancelStretch,
+    wasJustStretching,
+    snapGuidelineTime,
+  };
 }
