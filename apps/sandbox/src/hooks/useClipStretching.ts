@@ -42,6 +42,8 @@ export interface UseClipStretchingOptions {
   snapOptions?: SnapOptions;
 }
 
+export type SnapGuidelineKind = 'grid' | 'alignment';
+
 export interface UseClipStretchingReturn {
   clipStretchStateRef: React.MutableRefObject<ClipStretchState | null>;
   startClipStretch: (stretchState: ClipStretchState) => void;
@@ -49,6 +51,7 @@ export interface UseClipStretchingReturn {
   wasJustStretching: () => boolean;
   /** Time (in seconds) the active stretch has snapped to. */
   snapGuidelineTime: number | null;
+  snapGuidelineKind: SnapGuidelineKind | null;
 }
 
 const MIN_DURATION = 0.1; // never collapse below 100ms
@@ -63,6 +66,7 @@ export function useClipStretching(
   const clipStretchStateRef = useRef<ClipStretchState | null>(null);
   const justStretchedRef = useRef(false);
   const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
+  const [snapGuidelineKind, setSnapGuidelineKind] = useState<SnapGuidelineKind | null>(null);
 
   const startClipStretch = (stretchState: ClipStretchState) => {
     clipStretchStateRef.current = stretchState;
@@ -71,6 +75,7 @@ export function useClipStretching(
   const cancelStretch = () => {
     clipStretchStateRef.current = null;
     setSnapGuidelineTime(null);
+    setSnapGuidelineKind(null);
   };
 
   const wasJustStretching = () => justStretchedRef.current;
@@ -86,10 +91,12 @@ export function useClipStretching(
       const gridSnap = snapEnabled && !!snapOptions && !e.altKey;
       let mouseTime = rawMouseTime;
       let guideline: number | null = null;
+      let guidelineKind: SnapGuidelineKind | null = null;
 
       if (gridSnap) {
         mouseTime = Math.max(0, snapToGrid(rawMouseTime, snapOptions!));
         guideline = mouseTime;
+        guidelineKind = 'grid';
       } else if (!e.altKey) {
         const ALIGN_THRESHOLD_PX = 6;
         const thresholdSec = ALIGN_THRESHOLD_PX / pixelsPerSecond;
@@ -112,9 +119,11 @@ export function useClipStretching(
         if (bestEdge !== null) {
           mouseTime = bestEdge;
           guideline = bestEdge;
+          guidelineKind = 'alignment';
         }
       }
       setSnapGuidelineTime(guideline);
+      setSnapGuidelineKind(guidelineKind);
 
       // Compute the drag ratio from the DRAGGED clip's new vs initial
       // duration, then apply that same ratio to every selected clip.
@@ -190,5 +199,6 @@ export function useClipStretching(
     cancelStretch,
     wasJustStretching,
     snapGuidelineTime,
+    snapGuidelineKind,
   };
 }

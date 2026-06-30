@@ -17,6 +17,8 @@ export interface UseClipDraggingOptions {
   snapOptions?: SnapOptions;
 }
 
+export type SnapGuidelineKind = 'grid' | 'alignment';
+
 export interface UseClipDraggingReturn {
   clipDragStateRef: React.MutableRefObject<ClipDragState | null>;
   didDragRef: React.MutableRefObject<boolean>;
@@ -25,6 +27,7 @@ export interface UseClipDraggingReturn {
   /** Time (in seconds) the active drag has snapped to. Null when no
    *  drag is active, no snap engaged, or Alt is held. */
   snapGuidelineTime: number | null;
+  snapGuidelineKind: SnapGuidelineKind | null;
 }
 
 /**
@@ -49,6 +52,7 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
   const clipDragStateRef = useRef<ClipDragState | null>(null);
   const didDragRef = useRef(false);
   const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
+  const [snapGuidelineKind, setSnapGuidelineKind] = useState<SnapGuidelineKind | null>(null);
 
   // Tracks cumulative cursor x movement while a snap is engaged, for hysteresis.
   // When this exceeds SNAP_RELEASE_PX, the snap releases and free positioning resumes.
@@ -68,6 +72,7 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
     didDragRef.current = false;
     snapHysteresisRef.current = null;
     setSnapGuidelineTime(null);
+    setSnapGuidelineKind(null);
     if (containerRef.current) {
       containerRef.current.style.cursor = '';
     }
@@ -90,11 +95,13 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
       const rawStart = Math.max(0, (x - dragState.offsetX - clipContentOffset) / pixelsPerSecond);
       let newStartTime = rawStart;
       let guideline: number | null = null;
+      let guidelineKind: SnapGuidelineKind | null = null;
 
       if (snapEnabled && snapOptions && !e.altKey) {
         // Grid snap path.
         newStartTime = Math.max(0, snapToGrid(rawStart, snapOptions));
         guideline = newStartTime;
+        guidelineKind = 'grid';
       } else if (!e.altKey) {
         // Alignment snap path — magnetically align to another clip's
         // start or end when within ~6px. Compares the moving clip's
@@ -126,9 +133,11 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
         if (bestEdge !== null) {
           newStartTime = Math.max(0, rawStart + bestDelta);
           guideline = bestEdge;
+          guidelineKind = 'alignment';
         }
       }
       setSnapGuidelineTime(guideline);
+      setSnapGuidelineKind(guidelineKind);
 
       // Determine destination track first.
       let currentY = topGap;
@@ -314,5 +323,6 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
     startClipDrag,
     cancelDrag,
     snapGuidelineTime,
+    snapGuidelineKind,
   };
 }

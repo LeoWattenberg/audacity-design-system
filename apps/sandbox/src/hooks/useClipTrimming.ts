@@ -26,14 +26,18 @@ export interface UseClipTrimmingOptions {
   snapOptions?: SnapOptions;
 }
 
+export type SnapGuidelineKind = 'grid' | 'alignment';
+
 export interface UseClipTrimmingReturn {
   clipTrimStateRef: React.MutableRefObject<ClipTrimState | null>;
   startClipTrim: (trimState: ClipTrimState) => void;
   cancelTrim: () => void;
   /** Time (in seconds) the active trim has snapped to, or null when no
-   *  trim is active / snap is off / Alt is held. Canvas reads this to
-   *  draw the snap guideline. */
+   *  trim is active / snap is off / Alt is held. */
   snapGuidelineTime: number | null;
+  /** What flavour of snap produced the guideline — 'grid' (cyan) or
+   *  'alignment' (yellow). Null when no guideline. */
+  snapGuidelineKind: SnapGuidelineKind | null;
 }
 
 /**
@@ -57,6 +61,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
   const SNAP_THRESHOLD_PX = 6;
   const SNAP_RELEASE_PX = 10;
   const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
+  const [snapGuidelineKind, setSnapGuidelineKind] = useState<SnapGuidelineKind | null>(null);
 
   const startClipTrim = (trimState: ClipTrimState) => {
     clipTrimStateRef.current = trimState;
@@ -67,6 +72,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
     clipTrimStateRef.current = null;
     onTrimStatusChange?.(false);
     setSnapGuidelineTime(null);
+    setSnapGuidelineKind(null);
   };
 
   // Document-level mouse move and up for clip trimming
@@ -93,10 +99,12 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       const gridSnap = snapEnabled && !!snapOptions && !e.altKey;
       let mouseTime = rawMouseTime;
       let guideline: number | null = null;
+      let guidelineKind: SnapGuidelineKind | null = null;
 
       if (gridSnap) {
         mouseTime = Math.max(0, snapToGrid(rawMouseTime, snapOptions!));
         guideline = mouseTime;
+        guidelineKind = 'grid';
       } else if (!e.altKey) {
         const ALIGN_THRESHOLD_PX = 6;
         const thresholdSec = ALIGN_THRESHOLD_PX / pixelsPerSecond;
@@ -119,9 +127,11 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
         if (bestEdge !== null) {
           mouseTime = bestEdge;
           guideline = bestEdge;
+          guidelineKind = 'alignment';
         }
       }
       setSnapGuidelineTime(guideline);
+      setSnapGuidelineKind(guidelineKind);
 
       // Get initial state for all selected clips from stored Map
       const allClipsInitialState = trimState.allClipsInitialState;
@@ -410,5 +420,6 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
     startClipTrim,
     cancelTrim,
     snapGuidelineTime,
+    snapGuidelineKind,
   };
 }

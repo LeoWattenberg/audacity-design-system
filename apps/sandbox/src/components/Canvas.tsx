@@ -257,6 +257,7 @@ export function Canvas({
     clipDragStateRef,
     didDragRef,
     snapGuidelineTime: dragSnapGuidelineTime,
+    snapGuidelineKind: dragSnapGuidelineKind,
   } = useClipDragging({
     containerRef,
     tracks,
@@ -291,6 +292,7 @@ export function Canvas({
   const {
     clipTrimStateRef,
     snapGuidelineTime: trimSnapGuidelineTime,
+    snapGuidelineKind: trimSnapGuidelineKind,
   } = useClipTrimming({
     containerRef,
     tracks,
@@ -306,6 +308,7 @@ export function Canvas({
     startClipStretch,
     wasJustStretching,
     snapGuidelineTime: stretchSnapGuidelineTime,
+    snapGuidelineKind: stretchSnapGuidelineKind,
   } = useClipStretching({
     containerRef,
     tracks,
@@ -316,9 +319,15 @@ export function Canvas({
   });
 
   // Whichever drag is active reports its snap target; we render at
-  // most one yellow guideline.
+  // most one guideline. Cyan for grid snap, yellow for alignment snap.
   const snapGuidelineTime =
     dragSnapGuidelineTime ?? trimSnapGuidelineTime ?? stretchSnapGuidelineTime;
+  const snapGuidelineKind =
+    dragSnapGuidelineKind ?? trimSnapGuidelineKind ?? stretchSnapGuidelineKind;
+  const snapGuidelineColor = snapGuidelineKind === 'grid' ? '#22D3EE' : '#FFD60A';
+  const snapGuidelineShadow = snapGuidelineKind === 'grid'
+    ? '0 0 4px rgba(34, 211, 238, 0.6)'
+    : '0 0 4px rgba(255, 214, 10, 0.6)';
 
   // Label dragging - extracted to custom hook (handles mouseup internally)
   useLabelDragging({
@@ -627,8 +636,8 @@ export function Canvas({
             bottom: 0,
             left: `${CLIP_CONTENT_OFFSET + snapGuidelineTime * pixelsPerSecond}px`,
             width: '1px',
-            backgroundColor: '#FFD60A',
-            boxShadow: '0 0 4px rgba(255, 214, 10, 0.6)',
+            backgroundColor: snapGuidelineColor,
+            boxShadow: snapGuidelineShadow,
             pointerEvents: 'none',
             zIndex: 11,
           }}
