@@ -317,3 +317,32 @@
 .track-control-panel--collapsed:not(.track-control-panel--label) .track-control-panel__effects-button {
   display: none;
 }
+
+/* Slot wrappers — focusable containers around Pan and Volume so
+   the navigation focus ring wraps the whole control rather than
+   sitting only on the knob button or slider handle. */
+.track-control-panel__slot {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  outline: none;
+}
+
+.track-control-panel__slot--volume {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.track-control-panel__slot--pan {
+  padding: 2px;
+}
+
+/* Slot focus ring — when the slot itself has focus (navigating between
+   controls). Once the user presses Enter, focus moves into the inner
+   knob/slider and this ring drops in favour of the inner control's
+   own focus indicator. */
+.track-control-panel__slot:focus {
+  outline: 2px solid var(--tcp-focus-color);
+  outline-offset: 1px;
+}

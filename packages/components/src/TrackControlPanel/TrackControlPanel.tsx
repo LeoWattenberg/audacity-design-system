@@ -165,6 +165,39 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
     const currentElement = document.activeElement;
     const isPanelFocused = currentElement === panelElement;
 
+    // Slot-based focus model: Pan and Volume are wrapped in focusable
+    // "slot" containers. Arrow nav lands on the slot (so the focus ring
+    // wraps the whole control); Enter pushes DOM focus into the inner
+    // knob/slider, and the inner control handles arrows directly.
+    // Escape returns focus to the slot.
+    const isOnSlot = (currentElement as HTMLElement | null)?.hasAttribute('data-tcp-slot') ?? false;
+    const slotAncestor = (currentElement as HTMLElement | null)?.closest('[data-tcp-slot]') as HTMLElement | null;
+    const isInsideSlot = slotAncestor !== null && !isOnSlot;
+
+    if (isOnSlot && e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      const inner = (currentElement as HTMLElement).querySelector('button, input') as HTMLElement | null;
+      inner?.focus();
+      return;
+    }
+
+    if (isInsideSlot) {
+      // Inside a control, let arrow keys flow to the control itself.
+      // Escape pops focus back out to the slot. Tab still leaves.
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        slotAncestor?.focus();
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // Don't navigate siblings; the control's own keydown handles it.
+        return;
+      }
+      // Fall through for Tab / Shift+Tab so user can exit.
+    }
+
     // Handle Enter key for track selection when panel is focused
     if (e.key === 'Enter' && isPanelFocused) {
       e.preventDefault();
@@ -256,14 +289,21 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
       return;
     }
 
-    // Find all focusable elements within the panel
-    const focusableElements = panelElement.querySelectorAll(
-      'button, input, [tabindex]:not([tabindex="-1"])'
+    // Find all focusable navigation targets within the panel. Slots
+    // (Pan / Volume wrappers) are first-class targets; ordinary
+    // buttons/inputs are too — but only when NOT inside a slot, since
+    // those inner controls are reached via Enter on the slot.
+    const allCandidates = panelElement.querySelectorAll(
+      '[data-tcp-slot], button, input, [tabindex]:not([tabindex="-1"])'
     );
+    const focusableElements = Array.from(allCandidates).filter((el) => {
+      if (el.hasAttribute('data-tcp-slot')) return true;
+      return el.closest('[data-tcp-slot]') === null;
+    });
 
     if (focusableElements.length === 0) return;
 
-    const currentIndex = Array.from(focusableElements).indexOf(currentElement as HTMLElement);
+    const currentIndex = focusableElements.indexOf(currentElement as HTMLElement);
     const isForward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
 
     // If the panel itself is focused (currentIndex === -1)
@@ -394,20 +434,39 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
         {/* Controls Row - Hidden for label tracks and when audio track height <= 70px */}
         {!isLabelTrack && (!trackHeight || trackHeight > 70) && (
           <div className="track-control-panel__controls-row">
-            {/* Pan Knob */}
-            <PanKnob
-              value={pan}
-              onChange={onPanChange}
+            {/* Pan Knob — wrapped in a focusable slot so the outline
+                sits around the whole control; Enter on the slot
+                pushes focus into the knob itself. */}
+            <div
+              className="track-control-panel__slot track-control-panel__slot--pan"
+              data-tcp-slot="pan"
               tabIndex={-1}
-            />
+              role="group"
+              aria-label="Pan"
+            >
+              <PanKnob
+                value={pan}
+                onChange={onPanChange}
+                tabIndex={-1}
+              />
+            </div>
 
-            {/* Volume Slider */}
-            <Slider
-              value={volume}
-              onChange={onVolumeChange}
-              ariaLabel="Volume"
+            {/* Volume Slider — slot wrapper gives the slider a
+                container-level focus ring. */}
+            <div
+              className="track-control-panel__slot track-control-panel__slot--volume"
+              data-tcp-slot="volume"
               tabIndex={-1}
-            />
+              role="group"
+              aria-label="Volume"
+            >
+              <Slider
+                value={volume}
+                onChange={onVolumeChange}
+                ariaLabel="Volume"
+                tabIndex={-1}
+              />
+            </div>
 
             {/* Mute and Solo Buttons */}
             <div className="track-control-panel__button-group">

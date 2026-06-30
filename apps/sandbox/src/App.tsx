@@ -526,7 +526,11 @@ function CanvasDemoContent() {
 
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const trackHeaderScrollRef = React.useRef<HTMLDivElement>(null);
-  const isScrollingSyncRef = React.useRef<'header' | 'canvas' | null>(null);
+  // Tracks the scrollTop value we most recently wrote to each scroller.
+  // When the resulting echo scroll event arrives, its scrollTop matches
+  // and we know to absorb it instead of syncing back, which avoids the
+  // ping-pong drift that the previous flag+RAF pattern was prone to.
+  const lastWrittenScrollTopRef = React.useRef<{ canvas: number; header: number }>({ canvas: -1, header: -1 });
   const isProgrammaticScrollRef = React.useRef(false);
 
   // Zoom controls
@@ -835,6 +839,44 @@ function CanvasDemoContent() {
         e.preventDefault();
         el.scrollLeft += e.deltaX;
         el.scrollTop += e.deltaY;
+        // Sync the side panel on the SAME wheel event so the canvas
+        // and side panel paint together. Without this, the canvas's
+        // own scroll event handler does the sync but only after the
+        // next paint, so the side panel visually trails by one frame.
+        const header = trackHeaderScrollRef.current;
+        if (header) {
+          header.scrollTop = el.scrollTop;
+          lastWrittenScrollTopRef.current.header = header.scrollTop;
+        }
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [activeMenuItem]);
+
+  // Mirror the canvas's wheel handler on the side panel: scroll both
+  // scrollers together on the wheel event, eliminating the one-frame
+  // visual lag that comes from relying solely on scroll events to
+  // drive the cross-sync. Without this, trackpad scrolls in the side
+  // panel make the canvas trail behind by a frame.
+  React.useEffect(() => {
+    const el = trackHeaderScrollRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Defer to existing canvas-side behaviour (zoom / horizontal lock)
+      // when modifiers are held — the user expects those gestures to
+      // operate on the canvas, not the side panel.
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (e.deltaY === 0) return;
+
+      e.preventDefault();
+      el.scrollTop += e.deltaY;
+      const canvas = scrollContainerRef.current;
+      if (canvas) {
+        canvas.scrollTop = el.scrollTop;
+        lastWrittenScrollTopRef.current.canvas = canvas.scrollTop;
       }
     };
 
@@ -845,19 +887,6 @@ function CanvasDemoContent() {
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollLeft = e.currentTarget.scrollLeft;
     const scrollTop = e.currentTarget.scrollTop;
-
-    // Sync vertical scroll with track headers immediately (DOM-only, no React).
-    // Round to an integer so touchpad-driven sub-pixel scrollTop values don't
-    // leave the two scrollers off by a fractional pixel — that fractional gap
-    // shows up as a 1px drift between the canvas tracks and their side-panel
-    // headers because browsers round each independently.
-    if (trackHeaderScrollRef.current && isScrollingSyncRef.current !== 'canvas') {
-      isScrollingSyncRef.current = 'header';
-      trackHeaderScrollRef.current.scrollTop = Math.round(scrollTop);
-      requestAnimationFrame(() => {
-        if (isScrollingSyncRef.current === 'header') isScrollingSyncRef.current = null;
-      });
-    }
 
     // Throttle React state updates to once per animation frame
     pendingScrollRef.current = { x: scrollLeft, y: scrollTop };
@@ -871,19 +900,41 @@ function CanvasDemoContent() {
         }
       });
     }
+
+    // If this scroll event is the echo of a sync we just wrote to the
+    // canvas, consume it without syncing back.
+    if (Math.abs(scrollTop - lastWrittenScrollTopRef.current.canvas) < 0.5) {
+      lastWrittenScrollTopRef.current.canvas = -1;
+      return;
+    }
+
+    // Genuine canvas scroll — sync to header. Pass through the
+    // sub-pixel value so trackpad scrolling stays glued together; if
+    // we rounded here the header would lag the canvas by up to a
+    // pixel during smooth scrolling.
+    const header = trackHeaderScrollRef.current;
+    if (header && Math.abs(header.scrollTop - scrollTop) > 0.5) {
+      header.scrollTop = scrollTop;
+      // Record what the browser ACTUALLY stored after the write —
+      // it may have clamped or rounded the value. The echo scroll
+      // event will fire with this stored value, so we need an exact
+      // match for the absorb check to work.
+      lastWrittenScrollTopRef.current.header = header.scrollTop;
+    }
   };
 
   const handleTrackHeaderScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
 
-    // Sync vertical scroll with canvas (skip if this was triggered by sync).
-    // Same round-to-integer as the other direction to avoid 1px drift.
-    if (scrollContainerRef.current && isScrollingSyncRef.current !== 'header') {
-      isScrollingSyncRef.current = 'canvas';
-      scrollContainerRef.current.scrollTop = Math.round(scrollTop);
-      requestAnimationFrame(() => {
-        if (isScrollingSyncRef.current === 'canvas') isScrollingSyncRef.current = null;
-      });
+    if (Math.abs(scrollTop - lastWrittenScrollTopRef.current.header) < 0.5) {
+      lastWrittenScrollTopRef.current.header = -1;
+      return;
+    }
+
+    const canvas = scrollContainerRef.current;
+    if (canvas && Math.abs(canvas.scrollTop - scrollTop) > 0.5) {
+      canvas.scrollTop = scrollTop;
+      lastWrittenScrollTopRef.current.canvas = canvas.scrollTop;
     }
   };
 

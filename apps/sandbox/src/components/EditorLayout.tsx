@@ -648,8 +648,14 @@ export function EditorLayout(props: EditorLayoutProps) {
                 key={track.id}
                 trackName={track.name}
                 trackType={trackType}
-                volume={75}
-                pan={0}
+                volume={track.gain ?? 75}
+                pan={track.pan ?? 0}
+                onVolumeChange={(value) => {
+                  dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { gain: value } } });
+                }}
+                onPanChange={(value) => {
+                  dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { pan: value } } });
+                }}
                 isMuted={false}
                 isSolo={false}
                 isFocused={state.focusedTrackIndex === index}
