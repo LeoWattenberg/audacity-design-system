@@ -94,9 +94,14 @@ export function useContainerTabGroup({
   // Resolve startTabIndex: explicit prop > profile tabOrder > 0
   const startTabIndex = startTabIndexProp ?? activeProfile.config.tabOrder?.[groupId] ?? 0;
 
-  // Fall back to default roving behavior when groupId isn't in profile
-  const isRoving = groupConfig ? groupConfig.tabindex === 'roving' : true;
-  const useArrows = groupConfig ? groupConfig.arrows : true;
+  // Flat-navigation mode overrides per-group config: every focusable
+  // element becomes a Tab stop and arrow-key sibling navigation is
+  // disabled, regardless of whether this groupId is listed in the
+  // profile. Without this, dynamically-named groups (e.g. one per
+  // track) would still rove because they're not in the profile map.
+  const isFlatNavigation = activeProfile.config.tabNavigation === 'sequential';
+  const isRoving = isFlatNavigation ? false : groupConfig ? groupConfig.tabindex === 'roving' : true;
+  const useArrows = isFlatNavigation ? false : groupConfig ? groupConfig.arrows : true;
   const wrap = groupConfig ? groupConfig.wrap : true;
 
   // Track whether we're inside a programmatic focus to avoid re-entrant blur resets

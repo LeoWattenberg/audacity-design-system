@@ -6,6 +6,7 @@ import { EnvelopeInteractionLayer } from '../EnvelopeInteractionLayer/EnvelopeIn
 import { generateSpeechWaveform } from '../utils/waveform';
 import { CLIP_CONTENT_OFFSET } from '../constants';
 import { useContainerTabGroup } from '../hooks/useContainerTabGroup';
+import { useAccessibilityProfile } from '../contexts/AccessibilityProfileContext';
 import { getInputMode } from '../utils/inputMode';
 import { scrollIntoViewIfNeeded } from '../utils/scrollIntoViewIfNeeded';
 import { useTheme } from '../ThemeProvider/ThemeProvider';
@@ -383,6 +384,12 @@ const TrackNewComponent: React.FC<TrackProps> = ({
   const clipFocusFromMouseRef = React.useRef(false);
   const mouseDownPosRef = React.useRef<{ x: number; y: number } | null>(null);
 
+  // Flat-navigation mode opts every clip into the Tab order so a
+  // screen-reader or sequential keyboard user can reach each one,
+  // rather than roving with arrow keys from a single Tab stop.
+  const { activeProfile } = useAccessibilityProfile();
+  const isFlatNavigation = activeProfile.config.tabNavigation === 'sequential';
+
   // Container-level roving tabindex for clip navigation (ArrowLeft/Right)
   const { onKeyDown: clipNavKeyDown, onBlur: clipNavBlur, onClickCapture: clipNavClickCapture, initTabIndices: initClipTabIndices } = useContainerTabGroup({
     containerRef: trackRef,
@@ -509,7 +516,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             zIndex: isDragging ? 10 : 2, // Dragged clips float above all others; above clip header recess (z-index: 1) otherwise
             opacity: isDragging ? 0.5 : undefined,
           }}
-          tabIndex={isFirstClip && tabIndex !== undefined ? tabIndex : -1}
+          tabIndex={isFlatNavigation ? 0 : (isFirstClip && tabIndex !== undefined ? tabIndex : -1)}
           role="button"
           aria-label={`${clip.name} clip`}
           onMouseEnter={() => onHoverClip?.(clip.id as number)}
@@ -658,16 +665,20 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               return;
             }
 
-            // Shift+Tab: go to panel controls
-            if (e.key === 'Tab' && e.shiftKey) {
+            // Shift+Tab: go to panel controls. Skipped in flat-nav
+            // mode — Tab is the sole navigation primitive and the
+            // browser's natural tab order moves the user back through
+            // each preceding clip / control.
+            if (!isFlatNavigation && e.key === 'Tab' && e.shiftKey) {
               e.preventDefault();
               e.stopPropagation();
               onEnterPanel?.();
               return;
             }
 
-            // Tab from last clip: navigate to ruler (or next track)
-            if (e.key === 'Tab' && !e.shiftKey && onTabFromLastClip && clipIndex === sortedClips.length - 1) {
+            // Tab from last clip: navigate to ruler (or next track).
+            // Also skipped in flat-nav mode for the same reason.
+            if (!isFlatNavigation && e.key === 'Tab' && !e.shiftKey && onTabFromLastClip && clipIndex === sortedClips.length - 1) {
               e.preventDefault();
               e.stopPropagation();
               onTabFromLastClip();
@@ -831,6 +842,36 @@ const TrackNewComponent: React.FC<TrackProps> = ({
       node.removeAttribute('data-focus-from-nav');
     }
 
+    // In flat-nav mode the track wrapper is its own Tab stop and the
+    // user can land on a track that's below the viewport. The .track
+    // spans the full canvas width, so we can't use scrollIntoViewIfNeeded
+    // (its inline: 'center' would yank the horizontal scroll). Instead,
+    // scroll vertically only — when the track sits outside a comfortable
+    // band, animate the scroll so the track top lands at TOP_OFFSET from
+    // the viewport top.
+    if (isFlatNavigation && !fromMouse && e.target === trackRef.current && node) {
+      const scrollEl = node.closest('.canvas-scroll-container') as HTMLElement | null;
+      if (scrollEl) {
+        const trackRect = node.getBoundingClientRect();
+        const containerRect = scrollEl.getBoundingClientRect();
+        // Where the focused track's top should sit relative to the
+        // viewport when we scroll. Enough breathing room above to show
+        // the track's surrounding context (the previous track / timeline
+        // ruler) while still keeping the focused track high enough that
+        // most of the canvas below is visible.
+        const TOP_OFFSET = 80;
+        const BOTTOM_PAD = 24;
+        const topOffset = trackRect.top - containerRect.top;
+        const bottomOffset = trackRect.bottom - containerRect.bottom;
+        const isAboveBand = topOffset < TOP_OFFSET;
+        const isBelowBand = bottomOffset > -BOTTOM_PAD;
+        if (isAboveBand || isBelowBand) {
+          const nextScrollTop = scrollEl.scrollTop + topOffset - TOP_OFFSET;
+          scrollEl.scrollTo({ top: Math.max(0, nextScrollTop), behavior: 'smooth' });
+        }
+      }
+    }
+
     const containerHasFocus =
       e.target === trackRef.current
       && !fromMouse
@@ -953,7 +994,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
                 e.shiftKey,
                 e.metaKey || e.ctrlKey,
               );
-            } else if (e.key === 'Tab' && !e.shiftKey) {
+            } else if (!isFlatNavigation && e.key === 'Tab' && !e.shiftKey) {
               e.preventDefault();
               e.stopPropagation();
               if (!isContainerFocused && trackClickXRef.current !== null) {
@@ -979,7 +1020,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
                 // Visible keyboard focus — Tab enters panel controls
                 onEnterPanel?.();
               }
-            } else if (e.key === 'Tab' && e.shiftKey) {
+            } else if (!isFlatNavigation && e.key === 'Tab' && e.shiftKey) {
               // Shift+Tab: go to previous track's clips or panel
               e.preventDefault();
               e.stopPropagation();

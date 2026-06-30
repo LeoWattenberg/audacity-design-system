@@ -81,6 +81,14 @@ export interface CanvasProps {
    */
   viewportHeight?: number;
   /**
+   * Extra vertical space rendered below the last track. Used to let
+   * the user scroll content into the upper part of the viewport.
+   * The beat / measure gridlines and measure bands extend through
+   * this space so the canvas looks continuous, not cut-off.
+   * @default 0
+   */
+  bottomBuffer?: number;
+  /**
    * ID of the clip currently being recorded (shows recording state)
    */
   recordingClipId?: number | null;
@@ -172,6 +180,7 @@ export function Canvas({
   showRmsInWaveform = true,
   controlPointStyle = 'default',
   viewportHeight = 0,
+  bottomBuffer = 0,
   recordingClipId = null,
   selectionAnchor = null,
   setSelectionAnchor,
@@ -341,6 +350,11 @@ export function Canvas({
   // Calculate total height based on all tracks + 2px gaps (top + between tracks)
   const tracksHeight = tracks.reduce((sum, track) => sum + (track.height || DEFAULT_TRACK_HEIGHT), 0) + TOP_GAP + (TRACK_GAP * (tracks.length - 1));
   const totalHeight = tracksHeight;
+  // Height of the canvas-container element, including the empty
+  // bottom buffer so gridlines extend through the scroll-buffer
+  // area below the last track. minHeight still pins to the viewport
+  // when there are very few tracks.
+  const containerHeight = totalHeight + bottomBuffer;
 
   // --- Split tool state ---
   // Tracks the live cursor position while the split tool is active. Only
@@ -623,7 +637,7 @@ export function Canvas({
   }, [bpm, beatsPerMeasure, timeFormat, pixelsPerSecond, width]);
 
   return (
-    <div className={`canvas-container${splitMode && splitHover ? ' canvas-container--split-mode' : ''}`} style={{ backgroundColor: bgColor, height: `${totalHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: splitMode && splitHover ? `url(${splitCursorUrl}) 14 10, crosshair` : 'text' } as React.CSSProperties}>
+    <div className={`canvas-container${splitMode && splitHover ? ' canvas-container--split-mode' : ''}`} style={{ backgroundColor: bgColor, height: `${containerHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: splitMode && splitHover ? `url(${splitCursorUrl}) 14 10, crosshair` : 'text' } as React.CSSProperties}>
       {/* Snap guideline — a 1px yellow vertical line at the snap target
           of an in-progress trim or stretch. Spans the full canvas
           height so the user can see which grid line each edge is
@@ -674,31 +688,36 @@ export function Canvas({
           );
         })()
       )}
-      {/* Beat/measure grid — rendered behind tracks */}
-      {(gridLines.length > 0 || measureBands.length > 0) && (
-        <svg
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: `${width}px`,
-            height: `${tracksHeight + viewportHeight}px`,
-            pointerEvents: 'none',
-          }}
-        >
-          {gridLines.map(({ x, tier }) => (
-            <line
-              key={x}
-              x1={x}
-              y1={0}
-              x2={x}
-              y2={tracksHeight + viewportHeight}
-              stroke={tier === 'measure' ? theme.stroke.grid.measure : tier === 'beat' ? theme.stroke.grid.major : theme.stroke.grid.minor}
-              strokeWidth={tier === 'subdivision' ? 0.5 : 1}
-            />
-          ))}
-        </svg>
-      )}
+      {/* Beat/measure grid — rendered behind tracks. Spans the full
+          canvas-container so gridlines also fill the empty scroll-
+          buffer space below the last track. */}
+      {(gridLines.length > 0 || measureBands.length > 0) && (() => {
+        const gridHeight = Math.max(containerHeight, viewportHeight);
+        return (
+          <svg
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: `${width}px`,
+              height: `${gridHeight}px`,
+              pointerEvents: 'none',
+            }}
+          >
+            {gridLines.map(({ x, tier }) => (
+              <line
+                key={x}
+                x1={x}
+                y1={0}
+                x2={x}
+                y2={gridHeight}
+                stroke={tier === 'measure' ? theme.stroke.grid.measure : tier === 'beat' ? theme.stroke.grid.major : theme.stroke.grid.minor}
+                strokeWidth={tier === 'subdivision' ? 0.5 : 1}
+              />
+            ))}
+          </svg>
+        );
+      })()}
       <div
         ref={containerRef}
         onMouseDownCapture={(e) => {

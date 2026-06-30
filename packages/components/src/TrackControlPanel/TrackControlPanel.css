@@ -156,6 +156,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: 2px;
+}
+
+.track-control-panel__track-name-text:focus {
+  outline: 2px solid var(--tcp-focus-color);
+  outline-offset: 2px;
 }
 
 .track-control-panel__header-right {
@@ -182,6 +188,12 @@
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
+  outline: none;
+}
+
+.track-control-panel__icon-button:focus {
+  outline: 2px solid var(--tcp-focus-color);
+  outline-offset: 2px;
 }
 
 .track-control-panel__icon {

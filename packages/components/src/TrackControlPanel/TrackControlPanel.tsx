@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTheme } from '../ThemeProvider';
+import { useAccessibilityProfile } from '../contexts/AccessibilityProfileContext';
 import { Button } from '../Button';
 import { GhostButton } from '../GhostButton';
 import { Icon } from '../Icon';
@@ -112,6 +113,14 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const focusFromMouseRef = React.useRef(false);
 
+  // Flat-navigation mode: every control inside the panel gets its
+  // own Tab stop and the panel-internal arrow nav + Pan/Volume slot
+  // model are disabled, so a sequential keyboard user can reach
+  // each interactive element directly.
+  const { activeProfile } = useAccessibilityProfile();
+  const isFlatNavigation = activeProfile.config.tabNavigation === 'sequential';
+  const childTabIndex = isFlatNavigation ? 0 : -1;
+
   // Calculate volume slider position
   const volumePercent = volume;
 
@@ -169,33 +178,37 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
     // "slot" containers. Arrow nav lands on the slot (so the focus ring
     // wraps the whole control); Enter pushes DOM focus into the inner
     // knob/slider, and the inner control handles arrows directly.
-    // Escape returns focus to the slot.
-    const isOnSlot = (currentElement as HTMLElement | null)?.hasAttribute('data-tcp-slot') ?? false;
-    const slotAncestor = (currentElement as HTMLElement | null)?.closest('[data-tcp-slot]') as HTMLElement | null;
-    const isInsideSlot = slotAncestor !== null && !isOnSlot;
+    // Escape returns focus to the slot. Disabled in flat-nav mode,
+    // where every control is a Tab stop and the inner knob/slider is
+    // reached directly without going through the slot.
+    if (!isFlatNavigation) {
+      const isOnSlot = (currentElement as HTMLElement | null)?.hasAttribute('data-tcp-slot') ?? false;
+      const slotAncestor = (currentElement as HTMLElement | null)?.closest('[data-tcp-slot]') as HTMLElement | null;
+      const isInsideSlot = slotAncestor !== null && !isOnSlot;
 
-    if (isOnSlot && e.key === 'Enter') {
-      e.preventDefault();
-      e.stopPropagation();
-      const inner = (currentElement as HTMLElement).querySelector('button, input') as HTMLElement | null;
-      inner?.focus();
-      return;
-    }
-
-    if (isInsideSlot) {
-      // Inside a control, let arrow keys flow to the control itself.
-      // Escape pops focus back out to the slot. Tab still leaves.
-      if (e.key === 'Escape') {
+      if (isOnSlot && e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        slotAncestor?.focus();
+        const inner = (currentElement as HTMLElement).querySelector('button, input') as HTMLElement | null;
+        inner?.focus();
         return;
       }
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        // Don't navigate siblings; the control's own keydown handles it.
-        return;
+
+      if (isInsideSlot) {
+        // Inside a control, let arrow keys flow to the control itself.
+        // Escape pops focus back out to the slot. Tab still leaves.
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          slotAncestor?.focus();
+          return;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          // Don't navigate siblings; the control's own keydown handles it.
+          return;
+        }
+        // Fall through for Tab / Shift+Tab so user can exit.
       }
-      // Fall through for Tab / Shift+Tab so user can exit.
     }
 
     // Handle Enter key for track selection when panel is focused
@@ -248,22 +261,27 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
       return;
     }
 
-    // Handle Tab or Shift+Tab from the panel itself — go to track container
-    if (e.key === 'Tab' && isPanelFocused) {
+    // Handle Tab or Shift+Tab from the panel itself — go to track container.
+    // Skipped in flat-nav mode: every child has its own Tab stop and we
+    // let the browser walk through them naturally.
+    if (!isFlatNavigation && e.key === 'Tab' && isPanelFocused) {
       e.preventDefault();
       onShiftTabOut?.();
       return;
     }
 
-    // Handle Tab key from a child — navigate out to clips
-    if (e.key === 'Tab' && !e.shiftKey && !isPanelFocused) {
+    // Handle Tab key from a child — navigate out to clips. In flat-nav
+    // mode, Tab is the navigation primitive between every focusable
+    // control, so the panel must NOT intercept it here; otherwise the
+    // browser never reaches the rest of the controls in the header.
+    if (!isFlatNavigation && e.key === 'Tab' && !e.shiftKey && !isPanelFocused) {
       e.preventDefault();
       onTabOut?.();
       return;
     }
 
     // Handle Shift+Tab to return focus to the track container
-    if (e.key === 'Tab' && e.shiftKey && !isPanelFocused) {
+    if (!isFlatNavigation && e.key === 'Tab' && e.shiftKey && !isPanelFocused) {
       e.preventDefault();
       onShiftTabOut?.();
       return;
@@ -281,6 +299,13 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
 
     // Only handle arrow keys for navigation
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') {
+      return;
+    }
+
+    // Flat-nav mode: Tab is the navigation primitive, so don't steal
+    // arrow keys for sibling navigation — the focused control gets to
+    // handle them (e.g. Knob's value adjustment).
+    if (isFlatNavigation) {
       return;
     }
 
@@ -379,10 +404,24 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
         {/* Header */}
         <div className="track-control-panel__header">
           <div className="track-control-panel__track-name">
-            <button className="track-control-panel__icon-button" aria-label="Track icon" tabIndex={-1}>
+            <button
+              className="track-control-panel__icon-button"
+              aria-label={`${trackName} track type`}
+              tabIndex={childTabIndex}
+            >
               <Icon name={getTrackIcon()} size={16} className="track-control-panel__icon" />
             </button>
-            <span className="track-control-panel__track-name-text">{trackName}</span>
+            {/* Rename interaction isn't wired yet, but the name needs a
+                Tab stop in flat-nav mode so the future rename action
+                slots in without re-shuffling the tab order. */}
+            <span
+              className="track-control-panel__track-name-text"
+              tabIndex={childTabIndex}
+              role="button"
+              aria-label={`Rename track: ${trackName}`}
+            >
+              {trackName}
+            </span>
           </div>
 
           <div className="track-control-panel__header-right">
@@ -392,7 +431,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                 active={false}
                 onClick={onAddLabelClick}
                 ariaLabel="Add label"
-                tabIndex={-1}
+                tabIndex={childTabIndex}
               >
                 <Icon name="plus" size={16} />
               </ToggleButton>
@@ -405,7 +444,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                   active={isMuted}
                   onClick={onMuteToggle}
                   ariaLabel="Mute"
-                  tabIndex={-1}
+                  tabIndex={childTabIndex}
                   size={20}
                 >
                   M
@@ -414,7 +453,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                   active={isSolo}
                   onClick={onSoloToggle}
                   ariaLabel="Solo"
-                  tabIndex={-1}
+                  tabIndex={childTabIndex}
                   size={20}
                 >
                   S
@@ -426,7 +465,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
               onClick={onMenuClick}
               active={isMenuOpen}
               ariaLabel="Track menu"
-              tabIndex={-1}
+              tabIndex={childTabIndex}
             />
           </div>
         </div>
@@ -447,7 +486,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
               <PanKnob
                 value={pan}
                 onChange={onPanChange}
-                tabIndex={-1}
+                tabIndex={childTabIndex}
               />
             </div>
 
@@ -464,7 +503,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                 value={volume}
                 onChange={onVolumeChange}
                 ariaLabel="Volume"
-                tabIndex={-1}
+                tabIndex={childTabIndex}
               />
             </div>
 
@@ -474,7 +513,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                 active={isMuted}
                 onClick={onMuteToggle}
                 ariaLabel="Mute"
-                tabIndex={-1}
+                tabIndex={childTabIndex}
                 size={20}
               >
                 M
@@ -483,7 +522,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                 active={isSolo}
                 onClick={onSoloToggle}
                 ariaLabel="Solo"
-                tabIndex={-1}
+                tabIndex={childTabIndex}
                 size={20}
               >
                 S
@@ -504,7 +543,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                 size="small"
                 onClick={onEffectsClick}
                 showIcon={false}
-                tabIndex={-1}
+                tabIndex={childTabIndex}
               >
                 Effects
               </Button>
@@ -514,7 +553,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
                   value={instrument ?? instruments![0].id}
                   onChange={(val) => onInstrumentChange?.(val)}
                   width="100%"
-                  tabIndex={-1}
+                  tabIndex={childTabIndex}
                 />
               </div>
             </div>
@@ -524,7 +563,7 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
               size="small"
               onClick={isLabelTrack ? onAddLabelClick : onEffectsClick}
               showIcon={false}
-              tabIndex={-1}
+              tabIndex={childTabIndex}
             >
               {isLabelTrack ? 'Add label' : 'Effects'}
             </Button>

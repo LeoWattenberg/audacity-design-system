@@ -6,6 +6,7 @@ import type { SpectrogramScale } from './FrequencyRuler';
 import type { WaveformRulerFormat } from '../RulerFlyout';
 import { getScaleMinFreq } from '../utils/spectrogramScales';
 import { useTheme } from '../ThemeProvider';
+import { useAccessibilityProfile } from '../contexts/AccessibilityProfileContext';
 import './VerticalRulerPanel.css';
 
 export interface TrackRulerConfig {
@@ -134,6 +135,8 @@ export const VerticalRulerPanel: React.FC<VerticalRulerPanelProps> = ({
   onRulerFocus,
 }) => {
   const { theme } = useTheme();
+  const { activeProfile } = useAccessibilityProfile();
+  const isFlatNavigation = activeProfile.config.tabNavigation === 'sequential';
   const trackRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const style = {
@@ -199,10 +202,14 @@ export const VerticalRulerPanel: React.FC<VerticalRulerPanelProps> = ({
               data-track-ruler-index={index}
               onFocus={isFocusable ? () => onRulerFocus?.(index) : undefined}
               onKeyDown={isFocusable ? (e: React.KeyboardEvent) => {
-                if (e.key === 'Tab' && !e.shiftKey) {
+                // In flat-nav mode, Tab is routed by the EditorLayout
+                // interceptor — the ruler must NOT redirect focus to
+                // the next track wrapper, otherwise the next track's
+                // header is bypassed entirely.
+                if (!isFlatNavigation && e.key === 'Tab' && !e.shiftKey) {
                   e.preventDefault();
                   onTabFromRuler?.(index);
-                } else if (e.key === 'Tab' && e.shiftKey) {
+                } else if (!isFlatNavigation && e.key === 'Tab' && e.shiftKey) {
                   e.preventDefault();
                   onShiftTabFromRuler?.(index);
                 } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
