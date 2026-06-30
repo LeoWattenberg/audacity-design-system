@@ -83,14 +83,45 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
         || (tracks[trimState.trackIndex]?.midiClips || []).find((c: any) => c.id === trimState.clipId);
       if (!draggedClip) return;
 
-      // Calculate mouse position in timeline. Apply the user's snap
-      // grid unless Alt is held (escape hatch for fine adjustments).
+      // Resolve the trim's target time.
+      //  Path 1 — grid snap on: quantise to the user's grid.
+      //  Path 2 — grid snap off (or Alt held): try to magnetically
+      //    align to another clip's start or end edge when within a
+      //    ~6px threshold. Helps line clips up by eye without
+      //    forcing a grid commitment.
       const rawMouseTime = Math.max(0, (x - clipContentOffset) / pixelsPerSecond);
-      const snapActive = snapEnabled && !!snapOptions && !e.altKey;
-      const mouseTime = snapActive
-        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions!))
-        : rawMouseTime;
-      setSnapGuidelineTime(snapActive ? mouseTime : null);
+      const gridSnap = snapEnabled && !!snapOptions && !e.altKey;
+      let mouseTime = rawMouseTime;
+      let guideline: number | null = null;
+
+      if (gridSnap) {
+        mouseTime = Math.max(0, snapToGrid(rawMouseTime, snapOptions!));
+        guideline = mouseTime;
+      } else if (!e.altKey) {
+        const ALIGN_THRESHOLD_PX = 6;
+        const thresholdSec = ALIGN_THRESHOLD_PX / pixelsPerSecond;
+        let bestEdge: number | null = null;
+        let bestDist = thresholdSec;
+        for (let ti = 0; ti < tracks.length; ti++) {
+          const t = tracks[ti];
+          const allClips = [...(t.clips || []), ...(t.midiClips || [])];
+          for (const c of allClips) {
+            if (ti === trimState.trackIndex && c.id === trimState.clipId) continue;
+            for (const edge of [c.start, c.start + c.duration]) {
+              const d = Math.abs(edge - rawMouseTime);
+              if (d < bestDist) {
+                bestDist = d;
+                bestEdge = edge;
+              }
+            }
+          }
+        }
+        if (bestEdge !== null) {
+          mouseTime = bestEdge;
+          guideline = bestEdge;
+        }
+      }
+      setSnapGuidelineTime(guideline);
 
       // Get initial state for all selected clips from stored Map
       const allClipsInitialState = trimState.allClipsInitialState;

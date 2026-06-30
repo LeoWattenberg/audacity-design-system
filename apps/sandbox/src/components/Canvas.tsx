@@ -256,6 +256,7 @@ export function Canvas({
   const {
     clipDragStateRef,
     didDragRef,
+    snapGuidelineTime: dragSnapGuidelineTime,
   } = useClipDragging({
     containerRef,
     tracks,
@@ -316,7 +317,8 @@ export function Canvas({
 
   // Whichever drag is active reports its snap target; we render at
   // most one yellow guideline.
-  const snapGuidelineTime = trimSnapGuidelineTime ?? stretchSnapGuidelineTime;
+  const snapGuidelineTime =
+    dragSnapGuidelineTime ?? trimSnapGuidelineTime ?? stretchSnapGuidelineTime;
 
   // Label dragging - extracted to custom hook (handles mouseup internally)
   useLabelDragging({

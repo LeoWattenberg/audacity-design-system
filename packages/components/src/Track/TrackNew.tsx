@@ -831,6 +831,14 @@ const TrackNewComponent: React.FC<TrackProps> = ({
       node.removeAttribute('data-focus-from-nav');
     }
 
+    // When the track container itself is freshly Tab-focused and
+    // sits outside the viewport, bring it into view. Clip focus
+    // already scrolls the clip element; the track container only
+    // had to be visible for the user to "see" focus on it.
+    if (!fromMouse && e.target === trackRef.current) {
+      scrollIntoViewIfNeeded(trackRef.current as HTMLElement);
+    }
+
     const containerHasFocus =
       e.target === trackRef.current
       && !fromMouse

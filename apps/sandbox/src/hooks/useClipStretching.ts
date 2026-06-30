@@ -58,7 +58,7 @@ const MAX_STRETCH = 10;
 export function useClipStretching(
   options: UseClipStretchingOptions,
 ): UseClipStretchingReturn {
-  const { containerRef, pixelsPerSecond, clipContentOffset, snapEnabled = false, snapOptions } = options;
+  const { containerRef, tracks, pixelsPerSecond, clipContentOffset, snapEnabled = false, snapOptions } = options;
   const dispatch = useTracksDispatch();
   const clipStretchStateRef = useRef<ClipStretchState | null>(null);
   const justStretchedRef = useRef(false);
@@ -83,11 +83,38 @@ export function useClipStretching(
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const rawMouseTime = Math.max(0, (x - clipContentOffset) / pixelsPerSecond);
-      const snapActive = snapEnabled && !!snapOptions && !e.altKey;
-      const mouseTime = snapActive
-        ? Math.max(0, snapToGrid(rawMouseTime, snapOptions!))
-        : rawMouseTime;
-      setSnapGuidelineTime(snapActive ? mouseTime : null);
+      const gridSnap = snapEnabled && !!snapOptions && !e.altKey;
+      let mouseTime = rawMouseTime;
+      let guideline: number | null = null;
+
+      if (gridSnap) {
+        mouseTime = Math.max(0, snapToGrid(rawMouseTime, snapOptions!));
+        guideline = mouseTime;
+      } else if (!e.altKey) {
+        const ALIGN_THRESHOLD_PX = 6;
+        const thresholdSec = ALIGN_THRESHOLD_PX / pixelsPerSecond;
+        let bestEdge: number | null = null;
+        let bestDist = thresholdSec;
+        for (let ti = 0; ti < tracks.length; ti++) {
+          const t = tracks[ti];
+          const allClips = [...(t.clips || []), ...(t.midiClips || [])];
+          for (const c of allClips) {
+            if (ti === s.trackIndex && c.id === s.clipId) continue;
+            for (const edge of [c.start, c.start + c.duration]) {
+              const d = Math.abs(edge - rawMouseTime);
+              if (d < bestDist) {
+                bestDist = d;
+                bestEdge = edge;
+              }
+            }
+          }
+        }
+        if (bestEdge !== null) {
+          mouseTime = bestEdge;
+          guideline = bestEdge;
+        }
+      }
+      setSnapGuidelineTime(guideline);
 
       // Compute the drag ratio from the DRAGGED clip's new vs initial
       // duration, then apply that same ratio to every selected clip.
@@ -155,7 +182,7 @@ export function useClipStretching(
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [pixelsPerSecond, clipContentOffset, dispatch, containerRef, snapEnabled, snapOptions]);
+  }, [tracks, pixelsPerSecond, clipContentOffset, dispatch, containerRef, snapEnabled, snapOptions]);
 
   return {
     clipStretchStateRef,

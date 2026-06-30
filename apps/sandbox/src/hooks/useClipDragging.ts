@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { ClipDragState, useTracksDispatch } from '../contexts/TracksContext';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
 import { snapToClipEdges } from '../utils/snapToClipEdges';
@@ -22,6 +22,9 @@ export interface UseClipDraggingReturn {
   didDragRef: React.MutableRefObject<boolean>;
   startClipDrag: (dragState: ClipDragState) => void;
   cancelDrag: () => void;
+  /** Time (in seconds) the active drag has snapped to. Null when no
+   *  drag is active, no snap engaged, or Alt is held. */
+  snapGuidelineTime: number | null;
 }
 
 /**
@@ -45,6 +48,7 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
   const dispatch = useTracksDispatch();
   const clipDragStateRef = useRef<ClipDragState | null>(null);
   const didDragRef = useRef(false);
+  const [snapGuidelineTime, setSnapGuidelineTime] = useState<number | null>(null);
 
   // Tracks cumulative cursor x movement while a snap is engaged, for hysteresis.
   // When this exceeds SNAP_RELEASE_PX, the snap releases and free positioning resumes.
@@ -63,6 +67,7 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
     clipDragStateRef.current = null;
     didDragRef.current = false;
     snapHysteresisRef.current = null;
+    setSnapGuidelineTime(null);
     if (containerRef.current) {
       containerRef.current.style.cursor = '';
     }
@@ -81,11 +86,49 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
       const dragState = clipDragStateRef.current;
       didDragRef.current = true; // Mark that dragging has occurred
 
-      // Calculate raw new start time
-      let newStartTime = Math.max(0, (x - dragState.offsetX - clipContentOffset) / pixelsPerSecond);
-      if (snapEnabled && snapOptions) {
-        newStartTime = Math.max(0, snapToGrid(newStartTime, snapOptions));
+      // Calculate raw new start time.
+      const rawStart = Math.max(0, (x - dragState.offsetX - clipContentOffset) / pixelsPerSecond);
+      let newStartTime = rawStart;
+      let guideline: number | null = null;
+
+      if (snapEnabled && snapOptions && !e.altKey) {
+        // Grid snap path.
+        newStartTime = Math.max(0, snapToGrid(rawStart, snapOptions));
+        guideline = newStartTime;
+      } else if (!e.altKey) {
+        // Alignment snap path — magnetically align to another clip's
+        // start or end when within ~6px. Compares the moving clip's
+        // start AND end edges to every other clip's edges so trailing
+        // butt-joins also catch.
+        const draggedDuration = dragState.clip?.duration ?? 0;
+        const ALIGN_THRESHOLD_PX = 6;
+        const thresholdSec = ALIGN_THRESHOLD_PX / pixelsPerSecond;
+        let bestEdge: number | null = null;
+        let bestDelta = 0;
+        let bestDist = thresholdSec;
+        for (let ti = 0; ti < tracks.length; ti++) {
+          const t = tracks[ti];
+          const allClips = [...(t.clips || []), ...(t.midiClips || [])];
+          for (const c of allClips) {
+            if (c.id === dragState.clip?.id) continue;
+            for (const otherEdge of [c.start, c.start + c.duration]) {
+              for (const movingEdge of [rawStart, rawStart + draggedDuration]) {
+                const d = Math.abs(movingEdge - otherEdge);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestEdge = otherEdge;
+                  bestDelta = otherEdge - movingEdge;
+                }
+              }
+            }
+          }
+        }
+        if (bestEdge !== null) {
+          newStartTime = Math.max(0, rawStart + bestDelta);
+          guideline = bestEdge;
+        }
       }
+      setSnapGuidelineTime(guideline);
 
       // Determine destination track first.
       let currentY = topGap;
@@ -270,5 +313,6 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
     didDragRef,
     startClipDrag,
     cancelDrag,
+    snapGuidelineTime,
   };
 }
