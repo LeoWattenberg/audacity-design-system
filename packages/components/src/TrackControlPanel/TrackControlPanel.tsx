@@ -423,8 +423,16 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
       } else if (e.metaKey || e.ctrlKey) {
         // Cmd/Ctrl+Enter: toggle track in/out of multi-selection
         onToggleSelection?.();
+      } else if (state === 'active') {
+        // Plain Enter on an already-selected track: deselect it.
+        // The panel's state prop is driven from selectedTrackIndices
+        // so 'active' === "this track is currently selected".
+        // Route through onToggleSelection because that's the only
+        // callback that removes a track from selection without
+        // touching the rest.
+        onToggleSelection?.();
       } else {
-        // Plain Enter: exclusively select this track
+        // Plain Enter on an unselected track: exclusively select.
         onClick?.();
       }
       return;
@@ -464,13 +472,33 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
       return;
     }
 
-    // Handle Tab or Shift+Tab from the panel itself — go to track container.
-    // Skipped in flat-nav mode: every child has its own Tab stop and we
-    // let the browser walk through them naturally.
+    // Tab from the panel itself:
+    //   • Shift+Tab → step out to the track container (existing
+    //     behaviour, driven by onShiftTabOut).
+    //   • Tab → step INTO the panel, landing on the icon button
+    //     first (the track-icon flyout trigger). From there the
+    //     browser walks the rest of the header controls naturally.
+    // Skipped in flat-nav mode: every child has its own Tab stop
+    // and we let the browser walk through them.
     if (!isFlatNavigation && e.key === 'Tab' && isPanelFocused) {
-      e.preventDefault();
-      onShiftTabOut?.();
-      return;
+      if (e.shiftKey) {
+        e.preventDefault();
+        onShiftTabOut?.();
+        return;
+      }
+      // Forward Tab: focus the icon button so the user lands on the
+      // track-icon flyout trigger as the first internal stop.
+      if (iconButtonRef.current) {
+        e.preventDefault();
+        // Clear the mouse-focus flag before landing on the icon,
+        // otherwise the next Tab hits the "reveal outline" branch
+        // above (which blurs + re-focuses to trigger :focus-visible)
+        // and swallows the navigation — forcing the user to press
+        // Tab a second time to actually move past the icon.
+        focusFromMouseRef.current = false;
+        iconButtonRef.current.focus();
+        return;
+      }
     }
 
     // Handle Tab key from a child — navigate out to clips. In flat-nav

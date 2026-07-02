@@ -703,7 +703,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             const isBracketRight = e.code === 'BracketRight'
               || e.key === ']' || e.key === '}'
               || (e as any).keyCode === 221;
-            if ((isBracketLeft || isBracketRight) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            if ((isBracketLeft || isBracketRight) && !e.altKey) {
               e.preventDefault();
               e.stopPropagation();
               const editAmount = 0.1;
@@ -713,6 +713,18 @@ const TrackNewComponent: React.FC<TrackProps> = ({
               // On the LEFT  edge: [ extends,  ] contracts.
               const isExtending = edge === 'right' ? isBracketRight : isBracketLeft;
               const delta = isExtending ? -editAmount : editAmount;
+
+              // Cmd/Ctrl modifier switches trim → stretch. Same edge
+              // and direction convention, so muscle memory carries
+              // between the two operations:
+              //   Cmd+[         → RIGHT edge stretch-in (compress)
+              //   Cmd+]         → RIGHT edge stretch-out
+              //   Cmd+Shift+[   → LEFT  edge stretch-out
+              //   Cmd+Shift+]   → LEFT  edge stretch-in (compress)
+              if (e.metaKey || e.ctrlKey) {
+                onClipStretch?.(clip.id, edge, delta);
+                return;
+              }
 
               // Boundary check: if the user is trying to EXTEND (not
               // shrink) and there's no more source audio to reveal

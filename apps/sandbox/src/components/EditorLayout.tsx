@@ -1018,7 +1018,8 @@ export function EditorLayout(props: EditorLayoutProps) {
                     });
 
                     if (shiftKey) {
-                      // Shift+Arrow: extend/contract track selection
+                      // Shift+Arrow: extend/contract track selection.
+                      // Anchor persists across the chain.
                       const anchor = selectionAnchor ?? index;
                       if (selectionAnchor === null) {
                         setSelectionAnchor(index);
@@ -1028,9 +1029,15 @@ export function EditorLayout(props: EditorLayoutProps) {
                       const newSelection: number[] = [];
                       for (let i = start; i <= end; i++) newSelection.push(i);
                       dispatch({ type: 'SET_SELECTED_TRACKS', payload: newSelection });
-                    } else {
-                      setSelectionAnchor(null);
                     }
+                    // Plain arrow-nav: intentionally NOT clearing the
+                    // anchor. A stale selectedTrackIndices[0] fallback
+                    // was the source of "Shift+Enter after nav selects
+                    // the wrong range". The anchor is now only reset
+                    // by explicit "reset intent" gestures (plain click,
+                    // plain Enter, exclusive-select), so a
+                    // just-established anchor survives the walk to
+                    // where the user wants to extend.
 
                     const panels = document.querySelectorAll('[aria-label*="track controls"]');
                     if (panels[nextIndex]) {
@@ -1081,13 +1088,27 @@ export function EditorLayout(props: EditorLayoutProps) {
                 onClick={() => {
                   selectTrackExclusive(index, dispatch);
                   dispatch({ type: 'SET_FOCUSED_TRACK', payload: index });
-                  setSelectionAnchor(null);
+                  // Anchor the just-clicked track so a subsequent
+                  // Shift+Enter from another track extends the range
+                  // from HERE — the user's most recent explicit
+                  // selection, not the app-init default of [0].
+                  setSelectionAnchor(index);
                 }}
                 onToggleSelection={() => {
                   toggleTrackSelection(index, state.selectedTrackIndices, dispatch);
+                  // Cmd+Click also plants the anchor so subsequent
+                  // Shift+Enter extends from the just-toggled row.
+                  setSelectionAnchor(index);
                 }}
                 onRangeSelection={() => {
-                  const anchor = selectionAnchor ?? (state.selectedTrackIndices.length > 0 ? state.selectedTrackIndices[0] : index);
+                  // Fallback to CURRENT focus rather than
+                  // selectedTrackIndices[0]. The old fallback picked
+                  // up the app-init `[0]` selection as an implicit
+                  // anchor, so Shift+Enter down to the bottom track
+                  // silently spanned from track 0 → last (i.e., "all
+                  // tracks selected") without the user ever having
+                  // established that anchor.
+                  const anchor = selectionAnchor ?? index;
                   if (selectionAnchor === null) {
                     setSelectionAnchor(anchor);
                   }

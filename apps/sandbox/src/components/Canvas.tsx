@@ -1364,17 +1364,28 @@ export function Canvas({
                   }, 0);
                 }}
                 onTrackReorder={(direction, wasContainerFocused) => {
-                  // Clip-move branch is only chosen when the focused
-                  // track is itself part of the "moving group" —
-                  // either it has a selected clip, OR a time selection
-                  // covers it AND overlaps a clip on it. If the user
-                  // moved focus onto an unselected track, Cmd+Arrow
-                  // stays a track-reorder gesture even when other
-                  // tracks have selected clips.
+                  // Focus disambiguates the gesture:
+                  //   • Focus on the track CONTAINER (Tab-nav lands
+                  //     the wrapper) → user is pointing at the track,
+                  //     Cmd+Arrow reorders the track even if a clip
+                  //     inside it is still selected.
+                  //   • Focus on a CLIP (arrow-nav / Tab-into-clip) →
+                  //     Cmd+Arrow moves the clip, per the usual
+                  //     clip-move / time-selection promotion paths.
+                  // Container-focused users can Tab back into the
+                  // clip if they want the clip-level gesture.
+                  if (wasContainerFocused) {
+                    // Skip the clip-move / time-selection promotion
+                    // branches — fall straight through to track
+                    // reorder below.
+                  }
+
                   const focusedTrack = tracks[trackIndex];
-                  const focusedHasSelectedClip = focusedTrack?.clips.some((c: any) => c.selected)
+                  const focusedHasSelectedClip = !wasContainerFocused && (
+                    focusedTrack?.clips.some((c: any) => c.selected)
                     || focusedTrack?.midiClips?.some((c: any) => c.selected)
-                    || false;
+                    || false
+                  );
 
                   // If a time selection covers a clip on the focused
                   // track (mirrors the horizontal Cmd+Arrow path),
@@ -1382,7 +1393,7 @@ export function Canvas({
                   // to selected + clear the time selection, then
                   // continue into the clip-move branch.
                   let promotedFromTimeSelection = false;
-                  if (!focusedHasSelectedClip && timeSelection) {
+                  if (!wasContainerFocused && !focusedHasSelectedClip && timeSelection) {
                     const { startTime, endTime } = timeSelection;
                     const EPS = 0.0001;
                     const focusedOverlaps = (focusedTrack?.clips || []).some((c: any) =>
@@ -1498,31 +1509,22 @@ export function Canvas({
                   // pin it explicitly to the focused track's new row.
                   dispatch({ type: 'SET_FOCUSED_TRACK', payload: targetIndex });
 
-                  // Sync selection with the reorder:
-                  //  - Focus was in the multi-track group → the
-                  //    whole group moved, remap each old index by
-                  //    +direction so the same set stays selected.
-                  //  - Focus was outside the group (user moved to
-                  //    an unrelated track and reordered it) → the
-                  //    stale multi-selection no longer describes
-                  //    the user's intent; collapse to the moved
-                  //    track's new row so subsequent actions
-                  //    operate on it.
+                  // Sync track selection with the reorder:
+                  //  - Focus was inside a multi-track selection →
+                  //    remap each index by +direction so the same
+                  //    group stays selected at their new rows.
+                  //  - Focus was outside → collapse track selection
+                  //    to the moved row.
+                  // Clip selection is intentionally left alone in
+                  // both cases: clips move with their track, and the
+                  // clip / track selection axes are decoupled — the
+                  // user can Tab back into a still-selected clip.
                   if (focusedInSelection && selectedTrackIndices.length > 1) {
                     dispatch({
                       type: 'SET_SELECTED_TRACKS',
                       payload: tracksToMove.map((i) => i + direction),
                     });
                   } else {
-                    // Focus is on a track that isn't part of the
-                    // current clip / track selection. The user has
-                    // effectively started a new gesture — clear the
-                    // stale clip selection too, otherwise the
-                    // highlighted clips on tracks the user no longer
-                    // cares about linger and future shortcuts
-                    // (Delete, Cmd+Arrow horizontal, etc.) act on
-                    // them instead of the reordered track.
-                    dispatch({ type: 'DESELECT_ALL_CLIPS' });
                     dispatch({ type: 'SET_SELECTED_TRACKS', payload: [targetIndex] });
                     setSelectionAnchor?.(targetIndex);
                   }
