@@ -632,14 +632,12 @@ export function Canvas({
           });
         }
       },
-      // Time-selection drags DO update track selection so the user's
-      // scope (which tracks the range covers, which tracks a Delete
-      // or Cmd+Arrow will act on) follows the drag naturally. A plain
-      // click (< 5px) is not a drag — useTimeSelection snapshots
-      // `initialSelectedTracks` on startDrag and restores it on
-      // mouseup when didActuallyDrag is false, so canvas clicks still
-      // leave the pre-existing selection intact.
-      onSelectedTracksChange: (trackIndices) => dispatch({ type: 'SET_SELECTED_TRACKS', payload: trackIndices }),
+      // Time-selection drags no longer touch `selectedTrackIndices`.
+      // The drag's vertical scope is now carried on the timeSelection
+      // object itself (`tracks`), so rendering can highlight only the
+      // rows the drag crossed while leaving the broader track
+      // selection alone. Track selection stays an explicit gesture.
+      onSelectedTracksChange: () => {},
       onFocusedTrackChange: (trackIndex) => {
         // Don't clear focus when clicking empty space - maintain current focus
         if (trackIndex !== null) {
@@ -1400,9 +1398,14 @@ export function Canvas({
                       c.start < endTime - EPS && c.start + c.duration > startTime + EPS,
                     );
                     if (focusedOverlaps) {
-                      const scopedTrackIndices = selectedTrackIndices.length > 0
-                        ? selectedTrackIndices
-                        : [trackIndex];
+                      // Prefer the time-selection's own tracks list
+                      // (drag scope) over selectedTrackIndices — same
+                      // pattern as the horizontal Cmd+Arrow path.
+                      const scopedTrackIndices = (timeSelection as any).tracks?.length
+                        ? (timeSelection as any).tracks as number[]
+                        : selectedTrackIndices.length > 0
+                          ? selectedTrackIndices
+                          : [trackIndex];
                       const overlapping: Array<{ trackIndex: number; clipId: number }> = [];
                       for (const ti of scopedTrackIndices) {
                         const t = tracks[ti];

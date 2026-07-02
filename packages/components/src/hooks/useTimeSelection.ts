@@ -299,10 +299,13 @@ export function useTimeSelection({
           }
         }
 
-        // Normal time selection behavior
+        // Normal time selection behavior. `tracks` carries the drag's
+        // vertical scope so the renderer can highlight only the rows
+        // the drag crossed — no need to touch `selectedTrackIndices`.
         onTimeSelectionChange({
           startTime: Math.min(startTime, endTime),
           endTime: Math.max(startTime, endTime),
+          tracks: selectedIndices,
         });
         onSelectedTracksChange(selectedIndices);
       }

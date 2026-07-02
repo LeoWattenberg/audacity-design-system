@@ -1095,9 +1095,30 @@ export function EditorLayout(props: EditorLayoutProps) {
                   setSelectionAnchor(index);
                 }}
                 onToggleSelection={() => {
+                  // Cmd+Click semantics depend on whether a
+                  // drag-drawn time selection is currently active:
+                  //   • With a time-selection scope → toggle the
+                  //     row in / out of the SCOPE only. Track
+                  //     selection is not touched, keeping the two
+                  //     axes independent.
+                  //   • Otherwise → toggle the row in / out of the
+                  //     track selection (original behaviour).
+                  const ts = state.timeSelection;
+                  if (ts && ts.tracks && ts.tracks.length > 0) {
+                    const nextTracks = ts.tracks.includes(index)
+                      ? ts.tracks.filter((i) => i !== index)
+                      : [...ts.tracks, index].sort((a, b) => a - b);
+                    dispatch({
+                      type: 'SET_TIME_SELECTION',
+                      payload: { ...ts, tracks: nextTracks },
+                    });
+                    // Plant the anchor at the toggled row so a
+                    // subsequent Shift+Enter extends the track
+                    // selection from here.
+                    setSelectionAnchor(index);
+                    return;
+                  }
                   toggleTrackSelection(index, state.selectedTrackIndices, dispatch);
-                  // Cmd+Click also plants the anchor so subsequent
-                  // Shift+Enter extends from the just-toggled row.
                   setSelectionAnchor(index);
                 }}
                 onRangeSelection={() => {

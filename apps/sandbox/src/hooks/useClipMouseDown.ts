@@ -142,9 +142,16 @@ export function useClipMouseDown({
                 !!timeSelection
                 && clip.start < timeSelection.endTime - EPS
                 && clip.start + clip.duration > timeSelection.startTime + EPS;
-              const scopedTrackIndices = (selectedTrackIndices && selectedTrackIndices.length > 0)
-                ? selectedTrackIndices
-                : tracks.map((_, idx) => idx);
+              // Scope resolution — prefer the time selection's own
+              // tracks list (populated by the drag) before falling
+              // back to the track selection. Matches the delete /
+              // Cmd+Arrow scoping so drag-into-time-selection sweeps
+              // the same rows the user drew across.
+              const scopedTrackIndices = (timeSelection && (timeSelection as any).tracks?.length)
+                ? (timeSelection as any).tracks as number[]
+                : (selectedTrackIndices && selectedTrackIndices.length > 0)
+                  ? selectedTrackIndices
+                  : tracks.map((_, idx) => idx);
               const trackInSelectionScope = scopedTrackIndices.includes(trackIndex);
 
               if (timeSelection && clipOverlapsSelection && trackInSelectionScope) {

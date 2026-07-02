@@ -90,6 +90,12 @@ interface TimeSelection {
   startTime: number;
   endTime: number;
   renderOnCanvas?: boolean; // If false, only show in ruler (e.g., when clip is selected)
+  /** Tracks the selection spans on the canvas. Populated by
+   *  useTimeSelection as the drag crosses rows. Rendering uses this
+   *  instead of `selectedTrackIndices` for the band's "bright" scope,
+   *  keeping time selection independent of track selection. Empty /
+   *  undefined = fall back to the selectedTrackIndices scope. */
+  tracks?: number[];
 }
 
 // SpectralSelection moved to SpectralSelectionContext for performance
@@ -855,12 +861,16 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
       }));
       const expandedTracks = expandSelectionToGroups(newTracks);
       const last = action.payload[action.payload.length - 1];
-      // Track selection intentionally left untouched — clip
-      // selection no longer implies track selection.
+      // Track selection and focus are intentionally left untouched.
+      // Clip selection no longer implies track selection (already
+      // decoupled), and dragging focus to the last clip's track was
+      // silently moving the user's focus during automatic promotes
+      // (e.g. Cmd+Arrow on a time selection that spans lots of
+      // rows). Callers that want focus to follow can dispatch
+      // SET_FOCUSED_TRACK themselves.
       return {
         ...state,
         tracks: expandedTracks,
-        focusedTrackIndex: last ? last.trackIndex : state.focusedTrackIndex,
         selectedLabelIds: [],
         // Clear the time selection — a batch clip select has no single
         // representative range to mirror in the ruler.
@@ -1343,17 +1353,27 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
     case 'DELETE_TIME_RANGE': {
       const { startTime, endTime } = action.payload;
 
-      // If no tracks are selected, apply cut to all tracks
-      const trackIndicesToCut = state.selectedTrackIndices.length > 0
-        ? state.selectedTrackIndices
-        : state.tracks.map((_, idx) => idx);
+      // Scope resolution:
+      //   1. The time-selection object's own `tracks` list —
+      //      populated by the drag gesture, so a drag across
+      //      tracks 2–4 always cuts those, no matter what the
+      //      track selection is doing.
+      //   2. `selectedTrackIndices` — legacy fallback for
+      //      selections that came from paths that didn't populate
+      //      the scope (keyboard, older paths).
+      //   3. All tracks — if nothing else is scoped.
+      const scopedTracks = state.timeSelection?.tracks?.length
+        ? state.timeSelection.tracks
+        : (state.selectedTrackIndices.length > 0
+            ? state.selectedTrackIndices
+            : state.tracks.map((_, idx) => idx));
 
       const newTracks = applyCut(
         state.tracks,
         startTime,
         endTime,
         state.cutMode,
-        trackIndicesToCut
+        scopedTracks,
       );
 
       return {

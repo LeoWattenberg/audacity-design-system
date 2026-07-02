@@ -58,6 +58,12 @@ export interface EnvelopeDragState {
 export interface TimeSelection {
   startTime: number;
   endTime: number;
+  /** Optional list of track indices the selection spans. Populated
+   *  by drag gestures so rendering can scope the "bright" band to
+   *  only the tracks the drag crossed — independent of the
+   *  broader track selection set. Empty / undefined = renderer
+   *  falls back to its own scope logic. */
+  tracks?: number[];
 }
 
 export interface Label {

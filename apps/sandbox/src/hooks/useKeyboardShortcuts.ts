@@ -664,11 +664,21 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         ) {
           const { startTime, endTime } = state.timeSelection;
           const EPS = 0.0001;
-          const scopedTrackIndices = state.selectedTrackIndices?.length
-            ? state.selectedTrackIndices
-            : state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined
-              ? [state.focusedTrackIndex]
-              : [];
+          // Scope resolution matches the DELETE_TIME_RANGE path:
+          //   1. The time selection's own `tracks` list (populated
+          //      by the drag). Now that time-selection doesn't
+          //      touch selectedTrackIndices, this is the primary
+          //      signal for "which rows the user just drew across".
+          //   2. Legacy selectedTrackIndices.
+          //   3. Focused track (single-track fallback for keyboard-
+          //      created selections without a scope).
+          const scopedTrackIndices = state.timeSelection.tracks?.length
+            ? state.timeSelection.tracks
+            : state.selectedTrackIndices?.length
+              ? state.selectedTrackIndices
+              : state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined
+                ? [state.focusedTrackIndex]
+                : [];
           type Overlap = { trackIndex: number; clipId: number };
           const overlapping: Overlap[] = [];
           for (const ti of scopedTrackIndices) {
