@@ -3,6 +3,8 @@ import { applyCut, CutMode } from '../utils/cutOperations';
 import type { Label as CoreLabel } from '@audacity-ui/core';
 import { ACTION_DOMAIN } from './reducers/domains';
 import { selectionReducer } from './reducers/selectionReducer';
+import { viewReducer } from './reducers/viewReducer';
+import { recordingReducer } from './reducers/recordingReducer';
 
 // TODO: Import proper Track and Clip types from @audacity-ui/core once they're defined
 interface EnvelopePoint {
@@ -524,6 +526,8 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
   // Route selection-domain actions to their sub-reducer
   switch (ACTION_DOMAIN[action.type]) {
     case 'selection': return selectionReducer(state, action);
+    case 'view': return viewReducer(state, action);
+    case 'recording': return recordingReducer(state, action);
   }
 
   switch (action.type) {
@@ -693,56 +697,12 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         envelopeAltMode: action.payload ? false : state.envelopeAltMode
       };
 
-    case 'SET_SPLIT_MODE':
-      return { ...state, splitMode: action.payload };
-
     case 'SET_ENVELOPE_ALT_MODE':
       return {
         ...state,
         envelopeAltMode: action.payload,
         envelopeMode: action.payload ? false : state.envelopeMode
       };
-
-    case 'SET_SPECTROGRAM_MODE': {
-      const isEnabling = action.payload;
-
-      if (isEnabling) {
-        // Save current view modes before applying overlay
-        const savedViewModes = state.tracks.map(track => track.viewMode);
-
-        // Apply spectrogram overlay to all tracks
-        const newTracks = state.tracks.map(track => ({
-          ...track,
-          viewMode: 'spectrogram' as const,
-        }));
-
-        return {
-          ...state,
-          spectrogramMode: true,
-          viewModesBeforeOverlay: savedViewModes,
-          tracks: newTracks,
-        };
-      } else {
-        // Restore previous view modes
-        const newTracks = state.tracks.map((track, index) => ({
-          ...track,
-          viewMode: state.viewModesBeforeOverlay?.[index],
-        }));
-
-        return {
-          ...state,
-          spectrogramMode: false,
-          viewModesBeforeOverlay: null,
-          tracks: newTracks,
-        };
-      }
-    }
-
-    case 'SET_TIME_SELECTION':
-      return { ...state, timeSelection: action.payload };
-
-    case 'SET_PLAYHEAD_POSITION':
-      return { ...state, playheadPosition: action.payload };
 
     case 'UPDATE_TRACK_HEIGHT': {
       const newTracks = [...state.tracks];
@@ -1142,36 +1102,6 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         tracks: newTracks,
       };
     }
-
-    case 'SET_CUT_MODE':
-      return { ...state, cutMode: action.payload };
-
-    case 'START_RECORDING':
-      return {
-        ...state,
-        isRecording: true,
-        recordingTrackIndex: action.payload.trackIndex,
-        recordingStartTime: Date.now(),
-        recordingMeterLevel: 0,
-        recordingPeakLevel: 0,
-      };
-
-    case 'STOP_RECORDING':
-      return {
-        ...state,
-        isRecording: false,
-        recordingTrackIndex: null,
-        recordingStartTime: 0,
-        recordingMeterLevel: 0,
-        recordingPeakLevel: 0,
-      };
-
-    case 'UPDATE_RECORDING_METERS':
-      return {
-        ...state,
-        recordingMeterLevel: action.payload.level,
-        recordingPeakLevel: Math.max(state.recordingPeakLevel, action.payload.peak),
-      };
 
     case 'DELETE_CLIP': {
       const { trackIndex, clipId } = action.payload;
@@ -1635,9 +1565,6 @@ function innerReducer(state: TracksState, action: TracksAction): TracksState {
         pianoRollScrollX: scrollX,
       };
     }
-
-    case 'SET_CANVAS_SNAP':
-      return { ...state, canvasSnap: action.payload };
 
     case 'SET_PIANO_ROLL_SNAP':
       return { ...state, pianoRollSnap: action.payload };
