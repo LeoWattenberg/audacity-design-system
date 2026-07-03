@@ -236,7 +236,7 @@ afterEach(cleanup);
 - Uses cubic power curve (x³) for visual dB positioning
 - 0dB positioned at ~2/3 down the clip height
 - Range: -60dB to +12dB, with -∞ at bottom 1px
-- Functions: `dbToYNonLinear()`, `yToDbNonLinear()` in `packages/components/src/Track/Track.tsx`
+- Functions: `dbToYNonLinear()`, `yToDbNonLinear()` — canonical exported versions in `packages/components/src/utils/envelope.ts` (local copies also exist in `Track.tsx` and `EnvelopeInteractionLayer.tsx`)
 
 **Automation Overlay States:**
 There are 6 distinct overlay states based on envelope mode, selection, and time selection. See `docs/automation-overlay-states.md` for the complete state matrix.
@@ -282,14 +282,15 @@ See `docs/clip-styling-states.md` for the complete state matrix.
 6. `ClipBody` filters envelope rendering to exclude hidden points
 
 **Constants** (in `packages/components/src/EnvelopeInteractionLayer/EnvelopeInteractionLayer.tsx`):
-- `CLIP_HEADER_HEIGHT = 20`
 - `CLICK_THRESHOLD = 10` (pixels for detecting clicks on points)
 - `ENVELOPE_LINE_FAR_THRESHOLD = 4` (max distance from line for interaction)
 - `ENVELOPE_MOVE_THRESHOLD = 3` (pixels to distinguish click from drag)
 - `SNAP_THRESHOLD_TIME = 0.05` (snap within 0.05 seconds)
 - `TIME_EPSILON = 0.001` (for detecting clip origin)
 
-Default track height: `DEFAULT_TRACK_HEIGHT = 114` (defined in `apps/sandbox/src/constants/canvas.ts`)
+Other layout constants:
+- `CLIP_HEADER_HEIGHT = 20` — local constant in `packages/components/src/Track/Track.tsx`
+- `DEFAULT_TRACK_HEIGHT = 114` — in `apps/sandbox/src/constants/canvas.ts`
 
 ## Important Patterns
 
