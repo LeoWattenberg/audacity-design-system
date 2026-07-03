@@ -637,7 +637,7 @@ function CanvasDemoContent() {
     selectionAnchorRef, selectionEdgesRef,
     effectsPanel, setEffectsPanel,
     clipboard, setClipboard,
-    isFlatNavigation, controlPanelHasFocus,
+    isFlatNavigation,
     toggleLoopRegion,
     audioManagerRef,
     onOpenPreferences: () => setIsPreferencesModalOpen(true),

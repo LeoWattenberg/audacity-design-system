@@ -36,7 +36,6 @@ export interface UseKeyboardShortcutsOptions {
   clipboard: ClipboardState | null;
   setClipboard: React.Dispatch<React.SetStateAction<ClipboardState | null>>;
   isFlatNavigation: boolean;
-  controlPanelHasFocus: number | null;
   toggleLoopRegion: () => void;
   audioManagerRef: React.RefObject<AudioPlaybackManager>;
   /** Cmd/Ctrl+, opens the preferences modal. */
@@ -64,7 +63,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     clipboard,
     setClipboard,
     isFlatNavigation,
-    controlPanelHasFocus,
     toggleLoopRegion,
     audioManagerRef,
     onOpenPreferences,
@@ -897,7 +895,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     state.timeSelection,
     state.focusedTrackIndex,
     state.splitMode,
-    controlPanelHasFocus,
     dispatch,
     isFlatNavigation,
     toggleLoopRegion,
