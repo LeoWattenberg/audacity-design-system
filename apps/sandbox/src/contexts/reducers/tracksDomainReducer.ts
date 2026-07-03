@@ -1,4 +1,4 @@
-import type { TracksState, TracksAction } from '../TracksContext';
+import type { TracksState, TracksAction, Track } from '../TracksContext';
 import { TRACK_COLOR_PALETTE } from '../TracksContext';
 
 export function tracksDomainReducer(state: TracksState, action: TracksAction): TracksState {
@@ -88,7 +88,7 @@ export function tracksDomainReducer(state: TracksState, action: TracksAction): T
     }
 
     case 'ADD_TRACK': {
-      const { insertAt, ...track } = action.payload as import('../TracksContext').Track & { insertAt?: number };
+      const { insertAt, ...track } = action.payload as Track & { insertAt?: number };
       const color = track.color ?? TRACK_COLOR_PALETTE[state.nextTrackColorIndex % TRACK_COLOR_PALETTE.length];
       // Defense in depth: if the caller passed an id that already exists
       // (collisions caused React duplicate-key warnings), bump to max+1.
