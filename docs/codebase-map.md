@@ -79,11 +79,17 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 
 | File | What it owns |
 |---|---|
-| `clipboardHandlers.ts` | Cut / copy / paste / duplicate |
+| `clipboardHandlers.ts` | Cut / copy / paste |
 | `deleteHandlers.ts` | Delete / clear selection |
 | `navigationHandlers.ts` | Arrow keys, Home/End, J/K clip-edge nav |
 | `playheadSelectionHandlers.ts` | Playhead move, selection extend |
 | `transportHandlers.ts` | Space/play/stop/record transport keys |
+| `trackCreationHandlers.ts` | Cmd+T / Shift+T / Shift+L — new mono/stereo/label track |
+| `splitHandlers.ts` | Cmd+I / Cmd+Shift+I — split clip(s) at the playhead |
+| `duplicateHandlers.ts` | Cmd/Ctrl+D — duplicate focused clip(s)/track(s) |
+| `effectsPanelHandlers.ts` | E — toggle effects panel with focus capture/restore |
+
+`useKeyboardShortcuts.ts` remains the dispatcher: one ordered `keydown` guard chain that delegates to these modules. Escape, Cmd+Arrow clip-move, and ArrowUp/Down are still inline (order-coupled focus logic, deferred).
 
 ---
 
