@@ -73,7 +73,10 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 | `useGrabToPan.ts` | Middle-click / grab-to-pan scrolling |
 | `useLoopRegion.ts` | Loop region drag and resize |
 | `useLabelDragging.ts` | Label drag interactions |
+| `useSplitTool.ts` | Split-mode click-to-split tool — state, Shift-sync + hover effects, and the split mouse-handler branches (extracted from Canvas; wired back into Canvas's guard chain in order) |
 | `useKeyboardShortcuts.ts` | **Keyboard routing hub** — delegates to domain handlers below |
+
+Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/utils/canvasGeometry.ts` (`resolveTrackIndexFromY`, `buildSplitForTrack`).
 
 ### Keyboard handlers (`apps/sandbox/src/hooks/handlers/`)
 
@@ -99,6 +102,7 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 |---|---|
 | `packages/components/src/Track/TrackNew.tsx` | Component-based track renderer — lays out clips, positions EnvelopeInteractionLayer overlays |
 | `packages/components/src/ClipBody/ClipBody.tsx` | Canvas-based clip body — waveform, spectrogram, and envelope fill drawing |
+| `apps/sandbox/src/components/GridOverlay.tsx` | Beat/measure grid SVG overlay (extracted from Canvas); exports pure `computeGrid` |
 | `apps/sandbox/src/components/Canvas.tsx` | Main rendering coordinator — manages track layout, time/spectral selection, coordinates TrackNew components and label rendering (see also: known debt below) |
 
 ---
@@ -111,7 +115,7 @@ These are not-yet-decomposed monoliths. They work but are prime targets for futu
 |---|---|
 | `apps/sandbox/src/App.tsx` | Application root — wires up provider tree and top-level routing; accumulates bootstrap concerns |
 | `apps/sandbox/src/components/EditorLayout.tsx` | Full editor chrome — toolbar, track panel, ruler, transport bar all in one component; not yet split by region |
-| `apps/sandbox/src/components/Canvas.tsx` | Track/clip/label rendering coordinator and interaction dispatcher; multiple concerns not yet separated |
+| `apps/sandbox/src/components/Canvas.tsx` | Track/clip/label interaction dispatcher (renders no `<canvas>`). Grid → `GridOverlay`, split tool → `useSplitTool`, geometry → `utils/canvasGeometry` are now extracted; the remaining bulk is the ~935-line track-map loop wiring props to TrackNew (needs a Context-slicing change to reduce) |
 | `packages/components/src/PreferencesModal/PreferencesModal.tsx` | Preferences UI; all preference panels in one file |
 
 ---
