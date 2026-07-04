@@ -15,6 +15,7 @@ import { useMarqueeSelection } from '../hooks/useMarqueeSelection';
 import { resolveOverlap, type ClipPlacement } from '../utils/resolveOverlap';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { LabelRenderer } from './LabelRenderer';
+import { GridOverlay } from './GridOverlay';
 import { calculateTrackYOffset } from '../utils/trackLayout';
 import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '../constants/canvas';
 import type { SnapOptions } from '../utils/snapToGrid';
@@ -733,86 +734,6 @@ export function Canvas({
     },
   });
 
-  // Calculate grid line positions — three tiers in beats-measures mode (measure/beat/subdivision),
-  // two tiers in minutes-seconds mode (major/minor)
-  const { gridLines, measureBands } = React.useMemo(() => {
-    const lines: Array<{ x: number; tier: 'measure' | 'beat' | 'subdivision' }> = [];
-    const bands: Array<{ x: number; w: number }> = [];
-    const totalSeconds = width / pixelsPerSecond;
-
-    if (timeFormat === 'beats-measures') {
-      const secondsPerBeat = 60 / bpm;
-      const secondsPerMeasure = secondsPerBeat * beatsPerMeasure;
-      // Grid step: determined by zoom level, not snap subdivision
-      // At low zoom show only measures, at high zoom show finer subdivisions
-      const pixelsPerBeat = secondsPerBeat * pixelsPerSecond;
-      let gridSubdivision: number;
-      if (pixelsPerBeat < 20) {
-        gridSubdivision = 1; // measures only
-      } else if (pixelsPerBeat < 40) {
-        gridSubdivision = beatsPerMeasure; // beats (quarter notes in 4/4)
-      } else if (pixelsPerBeat < 80) {
-        gridSubdivision = beatsPerMeasure * 2; // eighth notes
-      } else if (pixelsPerBeat < 160) {
-        gridSubdivision = beatsPerMeasure * 4; // sixteenth notes
-      } else {
-        gridSubdivision = beatsPerMeasure * 8; // thirty-second notes
-      }
-      const gridStep = secondsPerMeasure / gridSubdivision;
-      const totalSteps = Math.ceil(totalSeconds / gridStep) + Math.ceil(secondsPerMeasure / gridStep);
-
-      for (let i = 0; i <= totalSteps; i++) {
-        const t = i * gridStep;
-        const x = CLIP_CONTENT_OFFSET + t * pixelsPerSecond;
-        if (x > width) break;
-
-        // Classify: is this time on a measure boundary, a beat boundary, or a subdivision?
-        const beatIndex = t / secondsPerBeat;
-        const isOnBeat = Math.abs(beatIndex - Math.round(beatIndex)) < 0.001;
-        const measureIndex = t / secondsPerMeasure;
-        const isOnMeasure = isOnBeat && Math.abs(measureIndex - Math.round(measureIndex)) < 0.001;
-
-        const tier: 'measure' | 'beat' | 'subdivision' = isOnMeasure ? 'measure' : isOnBeat ? 'beat' : 'subdivision';
-        lines.push({ x, tier });
-      }
-
-      // Alternating measure bands — every other measure gets a darker background
-      const measureWidth = secondsPerMeasure * pixelsPerSecond;
-      const totalMeasures = Math.ceil(totalSeconds / secondsPerMeasure) + 1;
-      for (let m = 0; m < totalMeasures; m++) {
-        if (m % 2 !== 0) continue; // even indices only (0-indexed), so measures 1,3,5,7… in 1-indexed
-        const x = CLIP_CONTENT_OFFSET + m * measureWidth;
-        if (x > width) break;
-        bands.push({ x, w: measureWidth });
-      }
-    } else {
-      // minutes-seconds: use the exact same thresholds as TimelineRuler
-      let majorInterval: number;
-      if (pixelsPerSecond < 20) {
-        majorInterval = 10;
-      } else if (pixelsPerSecond < 50) {
-        majorInterval = 5;
-      } else if (pixelsPerSecond < 100) {
-        majorInterval = 2;
-      } else if (pixelsPerSecond < 200) {
-        majorInterval = 1;
-      } else {
-        majorInterval = 0.5;
-      }
-      const minorInterval = majorInterval / 5;
-      let t = 0;
-      while (t <= totalSeconds + minorInterval) {
-        const roundedT = Math.round(t / minorInterval) * minorInterval;
-        const x = CLIP_CONTENT_OFFSET + roundedT * pixelsPerSecond;
-        if (x > width) break;
-        const isMajor = Math.abs(roundedT % majorInterval) < 0.001;
-        lines.push({ x, tier: isMajor ? 'measure' : 'beat' });
-        t = Math.round((t + minorInterval) * 1000) / 1000;
-      }
-    }
-    return { gridLines: lines, measureBands: bands };
-  }, [bpm, beatsPerMeasure, timeFormat, pixelsPerSecond, width]);
-
   return (
     <div className={`canvas-container${splitMode && splitHover ? ' canvas-container--split-mode' : ''}`} style={{ backgroundColor: bgColor, height: `${containerHeight}px`, minHeight: `${viewportHeight}px`, overflow: 'clip', overflowClipMargin: '2px', cursor: splitMode && splitHover ? `url(${splitCursorUrl}) 14 10, crosshair` : 'text' } as React.CSSProperties}>
       {/* Snap guideline — a 1px yellow vertical line at the snap target
@@ -868,33 +789,15 @@ export function Canvas({
       {/* Beat/measure grid — rendered behind tracks. Spans the full
           canvas-container so gridlines also fill the empty scroll-
           buffer space below the last track. */}
-      {(gridLines.length > 0 || measureBands.length > 0) && (() => {
-        const gridHeight = Math.max(containerHeight, viewportHeight);
-        return (
-          <svg
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: `${width}px`,
-              height: `${gridHeight}px`,
-              pointerEvents: 'none',
-            }}
-          >
-            {gridLines.map(({ x, tier }) => (
-              <line
-                key={x}
-                x1={x}
-                y1={0}
-                x2={x}
-                y2={gridHeight}
-                stroke={tier === 'measure' ? theme.stroke.grid.measure : tier === 'beat' ? theme.stroke.grid.major : theme.stroke.grid.minor}
-                strokeWidth={tier === 'subdivision' ? 0.5 : 1}
-              />
-            ))}
-          </svg>
-        );
-      })()}
+      <GridOverlay
+        bpm={bpm}
+        beatsPerMeasure={beatsPerMeasure}
+        timeFormat={timeFormat}
+        pixelsPerSecond={pixelsPerSecond}
+        width={width}
+        containerHeight={containerHeight}
+        viewportHeight={viewportHeight}
+      />
       <div
         ref={containerRef}
         onMouseDownCapture={(e) => {
