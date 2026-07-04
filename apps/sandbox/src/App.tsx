@@ -1925,9 +1925,6 @@ function CanvasDemoContent() {
       <AppDialogs
         welcomeDialog={welcomeDialog}
         audioEngine={audioEngine}
-        tracks={state.tracks}
-        masterEffects={state.masterEffects}
-        dispatch={dispatch}
         isCloudProject={isCloudProject}
         setIsCloudProject={setIsCloudProject}
         isCloudUploading={isCloudUploading}
@@ -1991,7 +1988,6 @@ function CanvasDemoContent() {
         showMixer={showMixer}
         setShowMixer={setShowMixer}
         setActiveMenuItem={setActiveMenuItem}
-        state={state}
       />
 
       <AppContextMenus

@@ -1,6 +1,8 @@
 import React from 'react';
 import { WelcomeDialog, EffectDialog, EffectHeader, EffectDialogContextMenu, AmplifyEffect, ReverbEffect, Dialog, DialogFooter, SignInActionBar, LabeledInput, Button, LabeledCheckbox, ContextMenuItem, SaveProjectModal, PreferencesModal, PluginBrowserDialog, MacroManager, ExportModal, ExportSettings, LabelEditor, PluginManagerDialog, Plugin, VSTEffectOptionsDialog, AlertDialog, toast } from '@dilsonspickles/components';
 import { EFFECT_REGISTRY } from '@audacity-ui/core';
+import { useTracks } from '../contexts/TracksContext';
+import type { Label } from '../contexts/TracksContext';
 import { DebugPanel } from './DebugPanel';
 import { MissingPluginsModal } from './MissingPluginsModal';
 import { generateWaveform } from '../utils/waveformGenerator';
@@ -26,11 +28,6 @@ export interface AppDialogsProps {
 
   // Audio engine
   audioEngine: any;
-
-  // Track/clip state
-  tracks: any[];
-  masterEffects: any[];
-  dispatch: React.Dispatch<any>;
 
   // Cloud state
   isCloudProject: boolean;
@@ -125,11 +122,11 @@ export interface AppDialogsProps {
   // Active menu item (for debug panel close)
   setActiveMenuItem: React.Dispatch<React.SetStateAction<'home' | 'project' | 'export' | 'debug'>>;
 
-  // State (for cutMode, timeSelection, playheadPosition)
-  state: any;
 }
 
 export function AppDialogs(props: AppDialogsProps) {
+  const { state, dispatch } = useTracks();
+  const { tracks, masterEffects } = state;
   const dialogs = useDialogs();
   const { effectDialog, setEffectDialog, effectContextMenu, setEffectContextMenu } = useContextMenus();
   const {
@@ -148,7 +145,6 @@ export function AppDialogs(props: AppDialogsProps) {
   }, [dialogs.isSaveToCloudDialogOpen]);
   const {
     welcomeDialog, audioEngine,
-    tracks, masterEffects, dispatch,
     isCloudProject, setIsCloudProject, isCloudUploading, setIsCloudUploading,
     cloudProjectName, setCloudProjectName, currentProjectId,
     dontShowSyncAgain, setDontShowSyncAgain,
@@ -175,7 +171,6 @@ export function AppDialogs(props: AppDialogsProps) {
     useSplitRecordButton, setUseSplitRecordButton,
     showMixer, setShowMixer,
     setActiveMenuItem,
-    state,
   } = props;
 
   return (
@@ -855,14 +850,14 @@ export function AppDialogs(props: AppDialogsProps) {
       {/* Label Editor */}
       <LabelEditor
         isOpen={dialogs.isLabelEditorOpen}
-        labels={tracks.flatMap((track: any) =>
-          (track.labels || []).map((label: any) => ({ ...label, id: String(label.id) }))
+        labels={tracks.flatMap((track) =>
+          (track.labels || []).map((label) => ({ ...label, id: String(label.id) }))
         )}
         tracks={[
           ...tracks
-            .map((track: any, index: number) => ({ track, index }))
-            .filter(({ track }: any) => track.clips.length === 0)
-            .map(({ track, index }: any) => ({
+            .map((track, index) => ({ track, index }))
+            .filter(({ track }) => track.clips.length === 0)
+            .map(({ track, index }) => ({
               value: index.toString(),
               label: track.name,
             })),
@@ -878,7 +873,7 @@ export function AppDialogs(props: AppDialogsProps) {
             labelsByTrack.get(label.trackIndex)!.push(label);
           });
 
-          tracks.forEach((_track: any, trackIndex: number) => {
+          tracks.forEach((_track, trackIndex) => {
             if (labelsByTrack.has(trackIndex)) {
               const newLabels = labelsByTrack.get(trackIndex)!.map(label => ({
                 ...label,
@@ -898,14 +893,14 @@ export function AppDialogs(props: AppDialogsProps) {
         onImport={() => {}}
         onExport={() => {}}
         onAddLabel={async () => {
-          const labelTrackIndex = tracks.findIndex((t: any) => t.clips.length === 0);
+          const labelTrackIndex = tracks.findIndex((t) => t.clips.length === 0);
 
           if (labelTrackIndex === -1) {
             const trackName = window.prompt('Enter label track name:', 'Label Track');
             if (!trackName) return;
 
             const newTrackIndex = tracks.length;
-            const maxId = Math.max(...tracks.map((t: any) => t.id), 0);
+            const maxId = Math.max(...tracks.map((t) => t.id), 0);
             const newTrackId = maxId + 1;
 
             const newTrack = {
@@ -965,7 +960,7 @@ export function AppDialogs(props: AppDialogsProps) {
 
           const newTrackIndex = tracks.length;
 
-          const maxId = Math.max(...tracks.map((t: any) => t.id), 0);
+          const maxId = Math.max(...tracks.map((t) => t.id), 0);
           const newTrackId = maxId + 1;
 
           if (!labelId) {
@@ -987,10 +982,10 @@ export function AppDialogs(props: AppDialogsProps) {
           }
 
           let sourceTrackIndex = -1;
-          let labelToMove: any = null;
+          let labelToMove: Label | null = null;
 
-          tracks.forEach((track: any, trackIndex: number) => {
-            const label = track.labels?.find((l: any) => l.id === parseInt(labelId, 10));
+          tracks.forEach((track, trackIndex) => {
+            const label = track.labels?.find((l) => l.id === parseInt(labelId, 10));
             if (label) {
               sourceTrackIndex = trackIndex;
               labelToMove = label;
@@ -1011,7 +1006,7 @@ export function AppDialogs(props: AppDialogsProps) {
           };
 
           const sourceTrack = tracks[sourceTrackIndex];
-          const updatedSourceLabels = sourceTrack.labels?.filter((l: any) => l.id !== labelToMove.id) || [];
+          const updatedSourceLabels = sourceTrack.labels?.filter((l) => l.id !== labelToMove!.id) || [];
 
           dispatch({
             type: 'UPDATE_TRACK',
@@ -1155,7 +1150,7 @@ export function AppDialogs(props: AppDialogsProps) {
         showFocusDebug={showFocusDebug}
         onShowFocusDebugChange={setShowFocusDebug}
         accessibilityProfileId={activeProfile.id}
-        accessibilityProfiles={profiles.map((p: any) => ({ id: p.id, name: p.name, description: p.description }))}
+        accessibilityProfiles={profiles.map((p) => ({ id: p.id, name: p.name, description: p.description }))}
         onAccessibilityProfileChange={setProfile}
         cutMode={state.cutMode}
         onCutModeChange={(mode) => dispatch({ type: 'SET_CUT_MODE', payload: mode })}
