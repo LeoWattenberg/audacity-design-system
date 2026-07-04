@@ -17,6 +17,7 @@ import { useAudioEngine, MIDI_INSTRUMENTS } from '../contexts/AudioEngineContext
 import { selectTrackExclusive, toggleTrackSelection } from '../utils/trackSelection';
 import { snapToGrid } from '../utils/snapToGrid';
 import { confirmTrackDelete } from '../utils/confirmTrackDelete';
+import { usePianoRollSmoothScroll } from '../hooks/usePianoRollSmoothScroll';
 
 export interface EditorLayoutProps {
   // Active menu
@@ -465,59 +466,7 @@ export function EditorLayout(props: EditorLayoutProps) {
   }, [state.focusedTrackIndex]);
 
   // Smooth-scroll piano roll to the selected clip's boundary area
-  const pianoRollScrollAnimRef = React.useRef<number | null>(null);
-  // When true, the next selectedMidiClipId change will NOT trigger smooth-scroll
-  // (used to suppress scroll when selection originates from within the piano roll)
-  const skipPianoRollScrollRef = React.useRef(false);
-  const selectedMidiClipId = React.useMemo(() => {
-    if (!state.pianoRollOpen || state.pianoRollTrackIndex === null) return null;
-    const track = state.tracks[state.pianoRollTrackIndex];
-    return track?.midiClips?.find(c => c.selected)?.id ?? null;
-  }, [state.pianoRollOpen, state.pianoRollTrackIndex, state.tracks]);
-
-  React.useEffect(() => {
-    if (selectedMidiClipId === null || state.pianoRollTrackIndex === null) return;
-    // Skip scroll when selection was triggered from within the piano roll
-    if (skipPianoRollScrollRef.current) {
-      skipPianoRollScrollRef.current = false;
-      return;
-    }
-
-    // Piano roll is in local time — always scroll to the start (0) on clip switch
-    const targetScrollX = 0;
-    const startScrollX = state.pianoRollScrollX;
-    if (Math.abs(targetScrollX - startScrollX) < 1) return;
-
-    const duration = 300; // ms
-    const startTime = performance.now();
-
-    // Cancel any in-flight animation
-    if (pianoRollScrollAnimRef.current !== null) {
-      cancelAnimationFrame(pianoRollScrollAnimRef.current);
-    }
-
-    const animate = (now: number) => {
-      const elapsed = now - startTime;
-      const t = Math.min(1, elapsed / duration);
-      // ease-out cubic
-      const eased = 1 - Math.pow(1 - t, 3);
-      const current = startScrollX + (targetScrollX - startScrollX) * eased;
-      dispatch({ type: 'SET_PIANO_ROLL_SCROLL_X', payload: current });
-      if (t < 1) {
-        pianoRollScrollAnimRef.current = requestAnimationFrame(animate);
-      } else {
-        pianoRollScrollAnimRef.current = null;
-      }
-    };
-
-    pianoRollScrollAnimRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (pianoRollScrollAnimRef.current !== null) {
-        cancelAnimationFrame(pianoRollScrollAnimRef.current);
-        pianoRollScrollAnimRef.current = null;
-      }
-    };
-  }, [selectedMidiClipId]);
+  const { skipPianoRollScrollRef } = usePianoRollSmoothScroll({ state, dispatch });
 
   // Ruler flyout state
   const rulerTriggerRef = React.useRef<HTMLElement | null>(null);
