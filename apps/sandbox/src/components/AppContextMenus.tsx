@@ -6,16 +6,14 @@ import type { Effect } from '@dilsonspickles/components';
 import { useDialogs } from '../contexts/DialogContext';
 import { useContextMenus } from '../contexts/ContextMenuContext';
 import { confirmTrackDelete } from '../utils/confirmTrackDelete';
+import { useTracks } from '../contexts/TracksContext';
+import type { Track, Clip } from '../contexts/TracksContext';
+import type { ClipboardState } from '../hooks/useKeyboardShortcuts';
 
 export interface AppContextMenusProps {
   // Spectrogram
   spectrogramScale: SpectrogramScale;
   setSpectrogramScale: React.Dispatch<React.SetStateAction<SpectrogramScale>>;
-
-  // Track/clip data
-  tracks: any[];
-  masterEffects: Effect[];
-  dispatch: React.Dispatch<any>;
 
   // Timeline ruler options
   timelineFormat: 'minutes-seconds' | 'beats-measures';
@@ -41,7 +39,7 @@ export interface AppContextMenusProps {
   beatsPerMeasure: number;
 
   // Clipboard
-  onClipboardSet: (clipboard: { clips: any[]; operation: 'copy' | 'cut'; timeSelection?: { startTime: number; endTime: number } } | null) => void;
+  onClipboardSet: (clipboard: ClipboardState | null) => void;
 
   // OS preference
   os: 'windows' | 'macos';
@@ -53,7 +51,6 @@ export interface AppContextMenusProps {
 
 export function AppContextMenus({
   spectrogramScale, setSpectrogramScale,
-  tracks, masterEffects, dispatch,
   timelineFormat, setTimelineFormat,
   updateDisplayWhilePlaying, setUpdateDisplayWhilePlaying,
   pinnedPlayHead, setPinnedPlayHead,
@@ -67,6 +64,8 @@ export function AppContextMenus({
   os,
   trackMenuTriggerRef,
 }: AppContextMenusProps) {
+  const { state, dispatch } = useTracks();
+  const { tracks, masterEffects } = state;
   const { isSpectrogramSettingsOpen, setIsSpectrogramSettingsOpen } = useDialogs();
   const {
     clipContextMenu, setClipContextMenu,
@@ -127,10 +126,10 @@ export function AppContextMenus({
       {/* Clip Context Menu */}
       {clipContextMenu && (() => {
         const targetTrack = tracks[clipContextMenu.trackIndex];
-        const targetClip = targetTrack?.clips.find((c: any) => c.id === clipContextMenu.clipId);
+        const targetClip = targetTrack?.clips.find((c: Clip) => c.id === clipContextMenu.clipId);
         const targetGroupId = targetClip?.groupId;
         const selectedClipsCount = tracks.reduce(
-          (sum: number, t: any) => sum + (t.clips || []).filter((c: any) => c.selected).length,
+          (sum: number, t: Track) => sum + t.clips.filter((c: Clip) => c.selected).length,
           0
         );
         const canGroup = selectedClipsCount >= 2;
@@ -152,11 +151,14 @@ export function AppContextMenus({
             onCut={() => {
               if (clipContextMenu) {
                 const track = tracks[clipContextMenu.trackIndex];
-                const clip = track?.clips.find((c: any) => c.id === clipContextMenu.clipId)
-                  || (track?.midiClips || []).find((c: any) => c.id === clipContextMenu.clipId);
+                const clip = track?.clips.find((c: Clip) => c.id === clipContextMenu.clipId)
+                  // justified: midiClips uses @audacity-ui/core MidiClip which shares id:number
+                  || (track?.midiClips || []).find((c) => c.id === clipContextMenu.clipId);
 
                 if (clip) {
-                  onClipboardSet({ clips: [{ ...clip, trackIndex: clipContextMenu.trackIndex }], operation: 'cut' });
+                  // justified: clip may be MidiClip (no envelopePoints) but ClipboardState
+                  // intentionally holds both kinds; the cast preserves original any[] behavior
+                  onClipboardSet({ clips: [{ ...clip, trackIndex: clipContextMenu.trackIndex } as Clip & { trackIndex: number }], operation: 'cut' });
 
                   dispatch({
                     type: 'DELETE_CLIP',
@@ -173,11 +175,14 @@ export function AppContextMenus({
             onCopy={() => {
               if (clipContextMenu) {
                 const track = tracks[clipContextMenu.trackIndex];
-                const clip = track?.clips.find((c: any) => c.id === clipContextMenu.clipId)
-                  || (track?.midiClips || []).find((c: any) => c.id === clipContextMenu.clipId);
+                const clip = track?.clips.find((c: Clip) => c.id === clipContextMenu.clipId)
+                  // justified: midiClips uses @audacity-ui/core MidiClip which shares id:number
+                  || (track?.midiClips || []).find((c) => c.id === clipContextMenu.clipId);
 
                 if (clip) {
-                  onClipboardSet({ clips: [{ ...clip, trackIndex: clipContextMenu.trackIndex }], operation: 'copy' });
+                  // justified: clip may be MidiClip (no envelopePoints) but ClipboardState
+                  // intentionally holds both kinds; the cast preserves original any[] behavior
+                  onClipboardSet({ clips: [{ ...clip, trackIndex: clipContextMenu.trackIndex } as Clip & { trackIndex: number }], operation: 'copy' });
                 }
                 setClipContextMenu(null);
               }
@@ -323,11 +328,11 @@ export function AppContextMenus({
                 type: 'UPDATE_TRACK',
                 payload: {
                   index: trackContextMenu.trackIndex,
-                  track: { color: color as any },
+                  track: { color },
                 },
               });
               const track = tracks[trackContextMenu.trackIndex];
-              track?.clips.forEach((clip: any) => {
+              track?.clips.forEach((clip: Clip) => {
                 dispatch({
                   type: 'UPDATE_CLIP',
                   payload: {

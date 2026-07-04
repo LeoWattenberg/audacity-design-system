@@ -1993,9 +1993,6 @@ function CanvasDemoContent() {
       <AppContextMenus
         spectrogramScale={spectrogramScale}
         setSpectrogramScale={setSpectrogramScale}
-        tracks={state.tracks}
-        masterEffects={state.masterEffects}
-        dispatch={dispatch}
         trackMenuTriggerRef={trackMenuTriggerRef}
         timelineFormat={timelineFormat}
         setTimelineFormat={setTimelineFormat}
