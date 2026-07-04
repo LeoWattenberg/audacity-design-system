@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
-import { useTracksDispatch } from '../contexts/TracksContext';
+import { useTracksDispatch, Track, Clip } from '../contexts/TracksContext';
+import type { MidiClip } from '@audacity-ui/core';
 import { resolveOverlap, ClipPlacement } from '../utils/resolveOverlap';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
 
@@ -16,7 +17,7 @@ export interface ClipTrimState {
 
 export interface UseClipTrimmingOptions {
   containerRef: React.RefObject<HTMLDivElement>;
-  tracks: any[];
+  tracks: Track[];
   pixelsPerSecond: number;
   clipContentOffset: number;
   onTrimStatusChange?: (isTrimming: boolean) => void;
@@ -115,8 +116,8 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       const trimState = clipTrimStateRef.current;
 
       // Find the clip being dragged (audio or midi)
-      const draggedClip = tracks[trimState.trackIndex]?.clips.find((c: any) => c.id === trimState.clipId)
-        || (tracks[trimState.trackIndex]?.midiClips || []).find((c: any) => c.id === trimState.clipId);
+      const draggedClip = tracks[trimState.trackIndex]?.clips.find((c) => c.id === trimState.clipId)
+        || (tracks[trimState.trackIndex]?.midiClips || []).find((c) => c.id === trimState.clipId);
       if (!draggedClip) return;
 
       // Resolve the trim's target time.
@@ -167,12 +168,12 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       const allClipsInitialState = trimState.allClipsInitialState;
       const selectedClips: Array<{
         trackIndex: number;
-        clip: any;
+        clip: Clip | MidiClip;
         initialState: { trimStart: number; duration: number; start: number; fullDuration: number; isMidi?: boolean; stretchFactor?: number };
       }> = [];
 
-      tracks.forEach((track: any, trackIndex: number) => {
-        track.clips.forEach((clip: any) => {
+      tracks.forEach((track, trackIndex) => {
+        track.clips.forEach((clip) => {
           if (clip.selected) {
             const key = `${trackIndex}-${clip.id}`;
             const initialState = allClipsInitialState.get(key);
@@ -181,7 +182,7 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
             }
           }
         });
-        (track.midiClips || []).forEach((clip: any) => {
+        (track.midiClips || []).forEach((clip) => {
           if (clip.selected) {
             const key = `${trackIndex}-${clip.id}`;
             const initialState = allClipsInitialState.get(key);
@@ -413,8 +414,8 @@ export function useClipTrimming(options: UseClipTrimmingOptions): UseClipTrimmin
       // (every selected clip on every track).
       const intent: ClipPlacement[] = [];
       const movingIds = new Set<number>();
-      tracks.forEach((track: any, trackIndex: number) => {
-        track.clips.forEach((clip: any) => {
+      tracks.forEach((track, trackIndex) => {
+        track.clips.forEach((clip) => {
           if (clip.selected) {
             intent.push({
               clipId: clip.id,

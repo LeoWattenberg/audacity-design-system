@@ -1,22 +1,23 @@
 import { MutableRefObject } from 'react';
 import { CLIP_CONTENT_OFFSET } from '@dilsonspickles/components';
 import { calculateLabelRows, isPointInLabel } from '../utils/labelLayout';
-import type { Track } from '../contexts/TracksContext';
+import type { Track, Clip, TracksAction, ClipDragState } from '../contexts/TracksContext';
+import type { SpectralSelection } from '../contexts/SpectralSelectionContext';
 
 interface ClipMouseDownConfig {
   containerRef: MutableRefObject<HTMLDivElement | null>;
   tracks: Track[];
   selectedLabelIds: string[];
-  spectralSelection: any;
+  spectralSelection: SpectralSelection | null;
   hasSpectralView: boolean;
   selectionIsPositionOnSpectralClip: ((x: number, y: number) => boolean) | undefined;
   containerPropsOnMouseDown: ((e: React.MouseEvent<HTMLDivElement>) => void) | undefined;
-  clipDragStateRef: MutableRefObject<any>;
+  clipDragStateRef: MutableRefObject<ClipDragState | null>;
   didDragRef: MutableRefObject<boolean>;
   justSelectedOnMouseDownRef: MutableRefObject<boolean>;
   pixelsPerSecond: number;
-  dispatch: (action: any) => void;
-  setSpectralSelection: (selection: any) => void;
+  dispatch: (action: TracksAction) => void;
+  setSpectralSelection: (selection: SpectralSelection | null) => void;
   TOP_GAP: number;
   TRACK_GAP: number;
   DEFAULT_TRACK_HEIGHT: number;
@@ -183,7 +184,7 @@ export function useClipMouseDown({
                 dispatch({ type: 'SET_TIME_SELECTION', payload: null });
 
                 clipDragStateRef.current = {
-                  clip,
+                  clip: clip as Clip, // justified: allClips merges Clip|MidiClip; ClipDragState.clip is Clip
                   trackIndex,
                   offsetX: x - clipX,
                   initialX: x,
@@ -254,7 +255,7 @@ export function useClipMouseDown({
 
               // Start clip drag
               clipDragStateRef.current = {
-                clip,
+                clip: clip as Clip, // justified: allClips merges Clip|MidiClip; ClipDragState.clip is Clip
                 trackIndex,
                 offsetX: x - clipX,
                 initialX: x,

@@ -1,12 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
-import { ClipDragState, useTracksDispatch } from '../contexts/TracksContext';
+import { ClipDragState, useTracksDispatch, Track } from '../contexts/TracksContext';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
 import { snapToClipEdges } from '../utils/snapToClipEdges';
 import { resolveOverlap, ClipPlacement } from '../utils/resolveOverlap';
 
 export interface UseClipDraggingOptions {
   containerRef: React.RefObject<HTMLDivElement>;
-  tracks: any[];
+  tracks: Track[];
   pixelsPerSecond: number;
   clipContentOffset: number;
   topGap: number;
@@ -330,8 +330,8 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
           // Find the current track index of this clip (it may have moved already)
           let currentTrackIndex = initialPos.trackIndex;
           for (let i = 0; i < tracks.length; i++) {
-            if (tracks[i].clips.some((c: any) => c.id === initialPos.clipId) ||
-                tracks[i].midiClips?.some((c: any) => c.id === initialPos.clipId)) {
+            if (tracks[i].clips.some((c) => c.id === initialPos.clipId) ||
+                tracks[i].midiClips?.some((c) => c.id === initialPos.clipId)) {
               currentTrackIndex = i;
               break;
             }
@@ -462,7 +462,7 @@ export function useClipDragging(options: UseClipDraggingOptions): UseClipDraggin
             i >= originalTracksLenRef.current;
             i--
           ) {
-            const t = tracks[i] as any;
+            const t = tracks[i];
             const isEmpty =
               t
               && (t.clips?.length ?? 0) === 0

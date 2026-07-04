@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { useTracksDispatch } from '../contexts/TracksContext';
+import { useTracksDispatch, Track } from '../contexts/TracksContext';
 import { snapToGrid, SnapOptions } from '../utils/snapToGrid';
 
 /**
@@ -35,7 +35,7 @@ export interface ClipStretchState {
 
 export interface UseClipStretchingOptions {
   containerRef: React.RefObject<HTMLDivElement>;
-  tracks: any[];
+  tracks: Track[];
   pixelsPerSecond: number;
   clipContentOffset: number;
   snapEnabled?: boolean;
