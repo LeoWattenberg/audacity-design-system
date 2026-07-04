@@ -9,6 +9,7 @@ import type { SpectrogramScale, WaveformRulerFormat, PanelHeaderTab } from '@dil
 import { MixerPanel, type MixerPanelChannel } from '@dilsonspickles/components';
 import type { EnvelopePointStyleKey } from '@audacity-ui/core';
 import { getAllEffects } from '@audacity-ui/core';
+import { useTracks } from '../contexts/TracksContext';
 import { useDialogs } from '../contexts/DialogContext';
 import { useContextMenus } from '../contexts/ContextMenuContext';
 import { useAudioEngine, MIDI_INSTRUMENTS } from '../contexts/AudioEngineContext';
@@ -17,10 +18,6 @@ import { snapToGrid } from '../utils/snapToGrid';
 import { confirmTrackDelete } from '../utils/confirmTrackDelete';
 
 export interface EditorLayoutProps {
-  // State
-  state: any;
-  dispatch: React.Dispatch<any>;
-
   // Active menu
   activeMenuItem: 'home' | 'project' | 'export' | 'debug';
 
@@ -142,8 +139,9 @@ const STYLE_FULL_WIDTH_RELATIVE: React.CSSProperties = { width: '100%', position
 const STYLE_FLEX_ROW_OVERFLOW_HIDDEN: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'row' as const, overflow: 'hidden' };
 
 export function EditorLayout(props: EditorLayoutProps) {
+  const { state, dispatch } = useTracks();
   const {
-    state, dispatch, activeMenuItem,
+    activeMenuItem,
     trackMenuTriggerRef,
     scrollX, scrollY, onScroll, onTrackHeaderScroll,
     scrollContainerRef, trackHeaderScrollRef,

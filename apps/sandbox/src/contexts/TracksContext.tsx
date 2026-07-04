@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, ReactNode } from 'react';
 import type { CutMode } from '../utils/cutOperations';
 import type { Label as CoreLabel } from '@audacity-ui/core';
+import type { SpectrogramScale } from '@dilsonspickles/components';
 import { ACTION_DOMAIN } from './reducers/domains';
 import { selectionReducer } from './reducers/selectionReducer';
 import { viewReducer } from './reducers/viewReducer';
@@ -79,7 +80,7 @@ export interface Track {
   effects?: Effect[]; // Track-specific effects chain
   effectsEnabled?: boolean; // Master toggle for all track effects (independent of individual effect states)
   waveformRulerFormat?: 'linear-amp' | 'logarithmic-db' | 'linear-db'; // Per-track waveform ruler format
-  spectrogramScale?: 'mel' | 'linear' | 'period' | 'erb'; // Per-track spectrogram scale
+  spectrogramScale?: SpectrogramScale; // Per-track spectrogram scale
   spectrogramMinFreq?: number; // Per-track min frequency in Hz
   spectrogramMaxFreq?: number; // Per-track max frequency in Hz
   gain?: number; // Track gain in dB (-60 to +12, default -6)
@@ -292,7 +293,7 @@ export type TracksAction =
   | { type: 'MOVE_SELECTED_CLIPS'; payload: { deltaSeconds: number } }
   | { type: 'MOVE_SELECTED_CLIPS_TO_TRACK'; payload: { direction: 1 | -1 } }
   | { type: 'UPDATE_TRACK_RULER_FORMAT'; payload: { index: number; format: 'linear-amp' | 'logarithmic-db' | 'linear-db' } }
-  | { type: 'UPDATE_TRACK_SPECTROGRAM_SCALE'; payload: { index: number; scale: 'mel' | 'linear' | 'period' | 'erb' } }
+  | { type: 'UPDATE_TRACK_SPECTROGRAM_SCALE'; payload: { index: number; scale: SpectrogramScale } }
   | { type: 'UPDATE_TRACK_SPECTROGRAM_FREQ'; payload: { index: number; minFreq?: number; maxFreq?: number } }
   // Piano roll / MIDI actions
   | { type: 'SET_PIANO_ROLL_OPEN'; payload: { open: boolean; trackIndex?: number; clipIndex?: number } }

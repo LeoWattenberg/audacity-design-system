@@ -1760,8 +1760,6 @@ function CanvasDemoContent() {
         <div style={{ display: 'flex', flex: '1 1 0', minHeight: 0 }}>
         <div style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <EditorLayout
-          state={state}
-          dispatch={dispatch}
           activeMenuItem={activeMenuItem}
           trackMenuTriggerRef={trackMenuTriggerRef}
           scrollX={scrollX}
