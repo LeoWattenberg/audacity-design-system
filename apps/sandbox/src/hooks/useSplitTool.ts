@@ -5,7 +5,6 @@ import { calculateTrackYOffset } from '../utils/trackLayout';
 import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '../constants/canvas';
 
 export interface UseSplitToolDeps {
-  containerRef: React.RefObject<HTMLDivElement>;
   tracks: Track[];
   pixelsPerSecond: number;
   leftPadding: number;

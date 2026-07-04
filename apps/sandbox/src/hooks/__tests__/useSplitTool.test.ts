@@ -36,11 +36,9 @@ describe('useSplitTool', () => {
     const dispatch = vi.fn();
     const handleClipMouseDown = vi.fn();
     const el = makeContainer();
-    const containerRef = { current: el } as React.RefObject<HTMLDivElement>;
 
     const { result } = renderHook(() =>
       useSplitTool({
-        containerRef,
         tracks,
         pixelsPerSecond: 100,
         leftPadding: 0,

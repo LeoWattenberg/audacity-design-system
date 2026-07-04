@@ -666,7 +666,6 @@ export function Canvas({
   });
 
   const splitTool = useSplitTool({
-    containerRef,
     tracks,
     pixelsPerSecond,
     leftPadding,

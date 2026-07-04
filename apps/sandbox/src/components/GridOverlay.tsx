@@ -106,6 +106,9 @@ export function GridOverlay(props: GridOverlayProps) {
   const { theme } = useTheme();
   const { gridLines, measureBands } = React.useMemo(
     () => computeGrid({ ...props, clipContentOffset: CLIP_CONTENT_OFFSET }),
+    // containerHeight/viewportHeight are intentionally excluded — they only
+    // affect the SVG height (computed below), not computeGrid's output, so
+    // recomputing the grid when they change would be wasted work.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.bpm, props.beatsPerMeasure, props.timeFormat, props.pixelsPerSecond, props.width],
   );
