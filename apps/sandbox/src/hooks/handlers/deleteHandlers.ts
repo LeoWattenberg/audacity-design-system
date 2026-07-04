@@ -222,7 +222,7 @@ function handleDeleteClips(deps: DeleteHandlerDeps): void {
   //   - no focused track, has selection → delete the selection
   // All track deletes go through confirmTrackDelete first.
   const hasContent = (idx: number): boolean => {
-    const t = state.tracks[idx] as any;
+    const t = state.tracks[idx];
     if (!t) return false;
     return (t.clips?.length ?? 0) > 0 || (t.midiClips?.length ?? 0) > 0;
   };
@@ -278,21 +278,21 @@ function findNextClipFocusTarget(
     focusedClipInfo?.trackIndex ?? deletedClips[0]?.trackIndex ?? 0;
   const anchorClip = focusedClipInfo
     ? state.tracks[anchorTrackIndex]?.clips.find(
-        (c: any) => c.id === focusedClipInfo.clipId,
+        (c) => c.id === focusedClipInfo.clipId,
       )
     : null;
   const anchorStart = anchorClip?.start ?? 0;
 
-  const isAlive = (ti: number, id: any) => !deletedSet.has(`${ti}:${id}`);
+  const isAlive = (ti: number, id: number) => !deletedSet.has(`${ti}:${id}`);
 
   // Same-track search first.
   const anchorTrack = state.tracks[anchorTrackIndex];
   if (anchorTrack) {
     const surviving = [...anchorTrack.clips]
-      .filter((c: any) => isAlive(anchorTrackIndex, c.id))
-      .sort((a: any, b: any) => a.start - b.start);
+      .filter((c) => isAlive(anchorTrackIndex, c.id))
+      .sort((a, b) => a.start - b.start);
     if (surviving.length > 0) {
-      const next = surviving.find((c: any) => c.start >= anchorStart);
+      const next = surviving.find((c) => c.start >= anchorStart);
       if (next) return { trackIndex: anchorTrackIndex, clipId: next.id as number };
       const prev = surviving[surviving.length - 1];
       return { trackIndex: anchorTrackIndex, clipId: prev.id as number };
@@ -305,9 +305,9 @@ function findNextClipFocusTarget(
       const ti = anchorTrackIndex + direction * offset;
       if (ti < 0 || ti >= state.tracks.length) continue;
       const t = state.tracks[ti];
-      const surviving = t.clips.filter((c: any) => isAlive(ti, c.id));
+      const surviving = t.clips.filter((c) => isAlive(ti, c.id));
       if (surviving.length === 0) continue;
-      const closest = surviving.reduce((best: any, c: any) =>
+      const closest = surviving.reduce((best, c) =>
         Math.abs(c.start - anchorStart) < Math.abs(best.start - anchorStart)
           ? c
           : best,

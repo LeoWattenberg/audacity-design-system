@@ -1,4 +1,4 @@
-import type { TracksState, TracksAction } from '../../contexts/TracksContext';
+import type { TracksState, TracksAction, Clip } from '../../contexts/TracksContext';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
 import { applySplitCut } from '../../utils/cutOperations';
 import type { ClipboardState } from '../useKeyboardShortcuts';
@@ -20,7 +20,7 @@ export function handleCopy(deps: ClipboardHandlerDeps): void {
 
     // Collect clips that intersect with the time selection on selected tracks
     const selectedTracks = state.selectedTrackIndices;
-    const clipsInSelection: any[] = [];
+    const clipsInSelection: (Clip & { trackIndex: number })[] = [];
     state.tracks.forEach((track, trackIndex) => {
       if (selectedTracks.length > 0 && !selectedTracks.includes(trackIndex)) return;
       track.clips.forEach(clip => {
@@ -42,7 +42,7 @@ export function handleCopy(deps: ClipboardHandlerDeps): void {
   }
 
   // Priority 2: Copy selected clips
-  const selectedClips: any[] = [];
+  const selectedClips: (Clip & { trackIndex: number })[] = [];
   state.tracks.forEach((track, trackIndex) => {
     track.clips.forEach(clip => {
       if (clip.selected) {
@@ -64,7 +64,7 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
     const { startTime, endTime } = state.timeSelection;
 
     const selectedTracks = state.selectedTrackIndices;
-    const clipsInSelection: any[] = [];
+    const clipsInSelection: (Clip & { trackIndex: number })[] = [];
     state.tracks.forEach((track, trackIndex) => {
       if (selectedTracks.length > 0 && !selectedTracks.includes(trackIndex)) return;
       track.clips.forEach(clip => {
@@ -97,7 +97,7 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
   }
 
   // Priority 2: Cut selected clips
-  const selectedClips: any[] = [];
+  const selectedClips: (Clip & { trackIndex: number })[] = [];
   state.tracks.forEach((track, trackIndex) => {
     track.clips.forEach(clip => {
       if (clip.selected) {
@@ -203,6 +203,7 @@ export function handlePaste(deps: ClipboardHandlerDeps): void {
         destTrackIndex,
       };
     })
+    // justified: clipData derives from ClipboardState.clips (any[]), so clip is unresolvable without widening scope
     .filter((item): item is { clip: any; sourceClipId: string | number; destTrackIndex: number } => item !== null);
 
   // Group clips by destination track

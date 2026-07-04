@@ -1,4 +1,4 @@
-import type { TracksState, TracksAction } from '../../contexts/TracksContext';
+import type { TracksState, TracksAction, Track } from '../../contexts/TracksContext';
 
 export interface TrackCreationHandlerDeps {
   state: TracksState;
@@ -12,13 +12,13 @@ export function handleTrackCreation(e: KeyboardEvent, deps: TrackCreationHandler
   // Pick a non-colliding id and a non-colliding numeric suffix from
   // existing tracks (length+1 collides after you delete a middle track).
   const nextIdAfterDeletes = (state.tracks.reduce(
-    (max: number, t: any) => (t.id > max ? t.id : max),
+    (max: number, t) => (t.id > max ? t.id : max),
     0,
   ) + 1);
   const nextNameNumber = (prefix: string) => {
     const pattern = new RegExp(`^${prefix} (\\d+)$`);
     const usedNumbers = state.tracks
-      .map((t: any) => {
+      .map((t) => {
         const m = pattern.exec(t.name ?? '');
         return m ? parseInt(m[1], 10) : NaN;
       })
@@ -30,7 +30,7 @@ export function handleTrackCreation(e: KeyboardEvent, deps: TrackCreationHandler
   if ((e.metaKey || e.ctrlKey) && (e.key === 't' || e.key === 'T')) {
     e.preventDefault();
     const prefix = e.shiftKey ? 'Stereo' : 'Audio';
-    const baseTrack: any = {
+    const baseTrack: Track = {
       id: nextIdAfterDeletes,
       name: `${prefix} ${nextNameNumber(prefix)}`,
       type: 'audio',
@@ -51,7 +51,7 @@ export function handleTrackCreation(e: KeyboardEvent, deps: TrackCreationHandler
         type: 'label',
         height: 76, // matches the AddTrackFlyout default in EditorLayout
         clips: [],
-      } as any,
+      },
     });
     return;
   }
