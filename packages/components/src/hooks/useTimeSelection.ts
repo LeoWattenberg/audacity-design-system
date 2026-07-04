@@ -133,7 +133,7 @@ export function useTimeSelection({
     let currentY = initialGap;
 
     for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
-      const track = tracks[trackIndex] as any;
+      const track = tracks[trackIndex];
       const trackHeight = track.height || defaultTrackHeight;
 
       // Check if y is within this track (including both header and body)
@@ -283,7 +283,7 @@ export function useTimeSelection({
             const { trackIndex, clipId } = clipAtPosition;
 
             // Check if this track has spectral view enabled
-            const track = tracks[trackIndex] as any;
+            const track = tracks[trackIndex];
             const hasSpectralView = track.viewMode === 'spectrogram' || track.viewMode === 'split';
 
             if (hasSpectralView) {
@@ -444,7 +444,7 @@ export function useTimeSelection({
         // Check if we started inside a spectral-enabled clip
         const clipAtStart = findClipAtPosition(x, y);
         if (clipAtStart && spectrogramMode) {
-          const track = tracks[clipAtStart.trackIndex] as any;
+          const track = tracks[clipAtStart.trackIndex];
           const hasSpectralView = track.viewMode === 'spectrogram' || track.viewMode === 'split';
           startedInsideClip = hasSpectralView;
         }

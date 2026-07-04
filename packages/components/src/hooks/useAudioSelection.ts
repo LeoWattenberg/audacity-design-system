@@ -222,7 +222,7 @@ export function useAudioSelection(
         return false;
       } else {
         // Fresh time selection being converted - but only if track has spectral view enabled
-        const track = timeSelectionConfig.tracks[trackIndex] as any;
+        const track = timeSelectionConfig.tracks[trackIndex];
         const hasSpectralView = track.viewMode === 'spectrogram' || track.viewMode === 'split';
 
         if (!hasSpectralView) {
@@ -284,7 +284,7 @@ export function useAudioSelection(
     {
       containerRef,
       currentSpectralSelection,
-      tracks: timeSelectionConfig.tracks as any, // Track types are compatible at runtime
+      tracks: timeSelectionConfig.tracks,
       pixelsPerSecond: timeSelectionConfig.pixelsPerSecond,
       defaultTrackHeight: timeSelectionConfig.defaultTrackHeight,
       trackGap: timeSelectionConfig.trackGap,

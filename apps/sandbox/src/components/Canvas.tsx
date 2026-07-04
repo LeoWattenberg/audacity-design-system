@@ -530,7 +530,7 @@ export function Canvas({
       clipHeaderHeight: 20,
       pixelsPerSecond,
       leftPadding,  // Use leftPadding for alignment with playhead
-      tracks: tracks as any, // justified: local Track/Clip uses `start` while core Track/Clip uses `startTime` — structural mismatch
+      tracks: tracks,
       defaultTrackHeight: DEFAULT_TRACK_HEIGHT,
       trackGap: TRACK_GAP,
       initialGap: TOP_GAP,

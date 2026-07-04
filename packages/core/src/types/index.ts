@@ -88,6 +88,27 @@ export interface TimeSelectionDragState {
 }
 
 /**
+ * Minimal structural type for a clip as consumed by selection hooks.
+ * The sandbox Track/Clip satisfies this structurally.
+ */
+export interface ClipLike {
+  id: number;
+  start: number;
+  duration: number;
+  waveformLeft?: number[];
+  waveformRight?: number[];
+}
+
+/**
+ * Minimal structural type for a track as consumed by selection hooks.
+ */
+export interface TrackLike {
+  clips: ClipLike[];
+  height?: number;
+  viewMode?: 'waveform' | 'spectrogram' | 'split';
+}
+
+/**
  * Configuration for time selection behavior
  */
 export interface TimeSelectionConfig {
@@ -96,7 +117,7 @@ export interface TimeSelectionConfig {
   /** Left padding before timeline starts (in pixels) */
   leftPadding: number;
   /** Array of tracks with height information */
-  tracks: Track[];
+  tracks: TrackLike[];
   /** Default track height when not specified */
   defaultTrackHeight: number;
   /** Gap between tracks (in pixels) */
