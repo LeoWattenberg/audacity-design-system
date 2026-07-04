@@ -17,6 +17,7 @@ import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { LabelRenderer } from './LabelRenderer';
 import { GridOverlay } from './GridOverlay';
 import { calculateTrackYOffset } from '../utils/trackLayout';
+import { resolveTrackIndexFromY, buildSplitForTrack } from '../utils/canvasGeometry';
 import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '../constants/canvas';
 import type { SnapOptions } from '../utils/snapToGrid';
 import './Canvas.css';
@@ -492,32 +493,6 @@ export function Canvas({
     };
   }, [splitMode]);
 
-  // Resolve which track Y belongs to. Returns null when outside any track row.
-  const resolveTrackIndexFromY = React.useCallback((y: number): number | null => {
-    let cursor = TOP_GAP;
-    for (let i = 0; i < tracks.length; i++) {
-      const h = tracks[i].height || DEFAULT_TRACK_HEIGHT;
-      if (y >= cursor && y < cursor + h) return i;
-      cursor += h + TRACK_GAP;
-    }
-    return null;
-  }, [tracks]);
-
-  // Build a split mutation for any clip on `trackIndex` that strictly
-  // contains `time` (not at clip edges, so we don't produce zero-width
-  // segments). Returns null when there's nothing to split.
-  const buildSplitForTrack = React.useCallback((trackIndex: number, time: number) => {
-    const track = tracks[trackIndex];
-    if (!track) return null;
-    const hit = track.clips.find((c) => {
-      const start = c.start;
-      const end = c.start + c.duration;
-      return time > start + 0.0001 && time < end - 0.0001;
-    });
-    if (!hit) return null;
-    return { type: 'split' as const, clipId: hit.id, trackIndex, leftEnd: time, rightStart: time };
-  }, [tracks]);
-
   // When split mode is enabled, immediately compute hover from the last
   // known cursor position so the custom cursor / preview line appear
   // without waiting for the next mousemove. Clear hover on disable.
@@ -528,15 +503,15 @@ export function Canvas({
     }
     const last = lastMouseRef.current;
     if (!last) return;
-    const trackIndex = resolveTrackIndexFromY(last.y);
+    const trackIndex = resolveTrackIndexFromY(last.y, tracks);
     if (trackIndex === null) return;
     const time = (last.x - leftPadding) / pixelsPerSecond;
     const trackTop = calculateTrackYOffset(trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT);
     const bodyTop = trackTop + CLIP_HEADER_HEIGHT;
-    if (last.y >= bodyTop && buildSplitForTrack(trackIndex, time)) {
+    if (last.y >= bodyTop && buildSplitForTrack(trackIndex, time, tracks)) {
       setSplitHover({ x: last.x, trackIndex, shiftKey: last.shiftKey });
     }
-  }, [splitMode, resolveTrackIndexFromY, buildSplitForTrack, leftPadding, pixelsPerSecond, tracks]);
+  }, [splitMode, leftPadding, pixelsPerSecond, tracks]);
 
   // Notify parent when height changes
   useEffect(() => {
@@ -821,13 +796,13 @@ export function Canvas({
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             const time = (x - leftPadding) / pixelsPerSecond;
-            const ti = resolveTrackIndexFromY(y);
+            const ti = resolveTrackIndexFromY(y, tracks);
             const isOverBody = ti !== null && y >= calculateTrackYOffset(ti, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT) + CLIP_HEADER_HEIGHT;
             if (!isOverBody) return;
             const mutations = e.shiftKey
-              ? tracks.map((_, i) => buildSplitForTrack(i, time)).filter(Boolean)
+              ? tracks.map((_, i) => buildSplitForTrack(i, time, tracks)).filter(Boolean)
               : (() => {
-                  const m = buildSplitForTrack(ti, time);
+                  const m = buildSplitForTrack(ti, time, tracks);
                   return m ? [m] : [];
                 })();
             if (mutations.length > 0) {
@@ -870,7 +845,7 @@ export function Canvas({
           ) {
             const rect = e.currentTarget.getBoundingClientRect();
             const y = e.clientY - rect.top;
-            const ti = resolveTrackIndexFromY(y);
+            const ti = resolveTrackIndexFromY(y, tracks);
             if (ti !== null) {
               e.preventDefault();
               e.stopPropagation();
@@ -885,7 +860,7 @@ export function Canvas({
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             const time = (x - leftPadding) / pixelsPerSecond;
-            const ti = resolveTrackIndexFromY(y);
+            const ti = resolveTrackIndexFromY(y, tracks);
             // Click must land on a clip BODY (below the header) — same
             // rule the hover preview uses. Header clicks fall through to
             // the normal handler so the menu / focus behaviour still
@@ -896,9 +871,9 @@ export function Canvas({
               return;
             }
             const mutations = e.shiftKey
-              ? tracks.map((_, i) => buildSplitForTrack(i, time)).filter(Boolean)
+              ? tracks.map((_, i) => buildSplitForTrack(i, time, tracks)).filter(Boolean)
               : (() => {
-                  const m = buildSplitForTrack(ti, time);
+                  const m = buildSplitForTrack(ti, time, tracks);
                   return m ? [m] : [];
                 })();
             if (mutations.length > 0) {
@@ -930,7 +905,7 @@ export function Canvas({
           const my = e.clientY - rect.top;
           lastMouseRef.current = { x: mx, y: my, shiftKey: e.shiftKey };
           if (splitMode) {
-            const trackIndex = resolveTrackIndexFromY(my);
+            const trackIndex = resolveTrackIndexFromY(my, tracks);
             const time = (mx - leftPadding) / pixelsPerSecond;
             // Only treat as a valid hover when the cursor is over a clip's
             // BODY (not the header) on the resolved track. Outside of a
@@ -941,7 +916,7 @@ export function Canvas({
               const trackTop = calculateTrackYOffset(trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT);
               const bodyTop = trackTop + CLIP_HEADER_HEIGHT;
               if (my >= bodyTop) {
-                overClipBody = !!buildSplitForTrack(trackIndex, time);
+                overClipBody = !!buildSplitForTrack(trackIndex, time, tracks);
               }
             }
             if (overClipBody && trackIndex !== null) {
@@ -1011,7 +986,7 @@ export function Canvas({
             const rect = e.currentTarget.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            const ti = resolveTrackIndexFromY(y);
+            const ti = resolveTrackIndexFromY(y, tracks);
             if (ti !== null) {
               const time = Math.max(0, (x - leftPadding) / pixelsPerSecond);
               const anchorTime = playheadPosition;
