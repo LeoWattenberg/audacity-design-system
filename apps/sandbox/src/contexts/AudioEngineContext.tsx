@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useRef, useEffect, useState, useCallback } from 'react';
 import * as Tone from 'tone';
 import { getAudioPlaybackManager } from '@audacity-ui/audio';
-import type { Track, Effect } from '../contexts/TracksContext';
+import type { Track, Effect } from './TracksContext';
 
 /**
  * Minimal interface covering the methods actually used at call sites.

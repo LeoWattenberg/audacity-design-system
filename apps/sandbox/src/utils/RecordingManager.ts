@@ -72,7 +72,7 @@ export class RecordingManager {
       // Start meter updates
       this.meterUpdateInterval = window.setInterval(() => {
         if (this.meter) {
-          const dbLevel = this.meter.getValue() as number;
+          const dbLevel = this.meter.getValue() as number; // justified: Meter.getValue(): number | number[] — meter is constructed single-channel
           const normalized = Math.max(0, Math.min(100, ((dbLevel + 60) / 60) * 100));
           this.peakLevel = Math.max(this.peakLevel, normalized);
           this.callbacks.onMeterUpdate(normalized, this.peakLevel);
@@ -245,7 +245,7 @@ export class RecordingManager {
       this.meterUpdateInterval = window.setInterval(() => {
         if (this.meter) {
           // Get RMS level in dB
-          const dbLevel = this.meter.getValue() as number;
+          const dbLevel = this.meter.getValue() as number; // justified: Meter.getValue(): number | number[] — meter is constructed single-channel
 
           // Convert dB to 0-100 range
           const normalized = Math.max(0, Math.min(100, ((dbLevel + 60) / 60) * 100));
@@ -309,7 +309,7 @@ export class RecordingManager {
 
       this.meterUpdateInterval = window.setInterval(() => {
         if (this.meter) {
-          const dbLevel = this.meter.getValue() as number;
+          const dbLevel = this.meter.getValue() as number; // justified: Meter.getValue(): number | number[] — meter is constructed single-channel
           const normalized = Math.max(0, Math.min(100, ((dbLevel + 60) / 60) * 100));
           this.peakLevel = Math.max(this.peakLevel, normalized);
           this.callbacks.onMeterUpdate(normalized, this.peakLevel);
