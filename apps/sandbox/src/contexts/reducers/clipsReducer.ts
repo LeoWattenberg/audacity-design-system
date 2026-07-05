@@ -317,19 +317,20 @@ export function clipsReducer(state: TracksState, action: TracksAction): TracksSt
         ...newTracks[trackIndex],
         clips: newTracks[trackIndex].clips.map(clip => {
           if (clip.id !== clipId) return clip;
-          const oldStretch = (clip as any).stretchFactor ?? 1;
-          const trimStart = (clip as any).trimStart ?? 0;
+          const oldStretch = (clip as any).stretchFactor ?? 1; // justified: stretchFactor is audio-only, not on Clip type (MidiClip must NOT get it)
+          const trimStart = clip.trimStart ?? 0;
           // Lock in fullDuration (source-audio length) on first stretch so
           // subsequent trim operations have an accurate audio-bound to
           // clamp against.
           const fullDuration =
-            (clip as any).fullDuration ?? (trimStart + clip.duration / oldStretch);
-          const updatedClip: any = {
+            clip.fullDuration ?? (trimStart + clip.duration / oldStretch);
+          // justified: stretchFactor is audio-only, not on Clip type (MidiClip must NOT get it)
+          const updatedClip = {
             ...clip,
             duration: newDuration,
             stretchFactor: newStretchFactor,
             fullDuration,
-          };
+          } as Clip & { stretchFactor: number };
           if (newStart !== undefined) updatedClip.start = newStart;
           return updatedClip;
         }),
@@ -442,7 +443,7 @@ export function clipsReducer(state: TracksState, action: TracksAction): TracksSt
         });
         track.midiClips?.forEach(clip => {
           if (clip.selected) {
-            selectedEntries.push({ trackIndex, clip: clip as any, isMidi: true });
+            selectedEntries.push({ trackIndex, clip: clip as unknown as Clip, isMidi: true }); // justified: MidiClip treated as Clip in cross-track move (common id/start/duration fields used)
           }
         });
       });
@@ -483,7 +484,7 @@ export function clipsReducer(state: TracksState, action: TracksAction): TracksSt
         if (entry.isMidi) {
           newTracks[destIndex] = {
             ...newTracks[destIndex],
-            midiClips: [...(newTracks[destIndex].midiClips || []), { ...(entry.clip as any), color: newTracks[destIndex].color }],
+            midiClips: [...(newTracks[destIndex].midiClips || []), { ...(entry.clip as unknown as import('@audacity-ui/core').MidiClip), color: newTracks[destIndex].color }], // justified: entry.clip is already a MidiClip stored as Clip for uniform handling
           };
         } else {
           newTracks[destIndex] = {

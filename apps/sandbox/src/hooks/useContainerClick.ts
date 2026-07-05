@@ -1,6 +1,6 @@
-import { MutableRefObject } from 'react';
+import React, { MutableRefObject } from 'react';
 import { CLIP_CONTENT_OFFSET } from '@dilsonspickles/components';
-import type { Track } from '../contexts/TracksContext';
+import type { Track, TracksAction } from '../contexts/TracksContext';
 
 interface ContainerClickConfig {
   containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -8,7 +8,7 @@ interface ContainerClickConfig {
   containerPropsOnClick: ((e: React.MouseEvent<HTMLDivElement>) => void) | undefined;
   selectionWasJustDragging: () => boolean;
   pixelsPerSecond: number;
-  dispatch: (action: any) => void;
+  dispatch: React.Dispatch<TracksAction>;
   onTrackFocusChange?: (trackIndex: number, hasFocus: boolean) => void;
   TOP_GAP: number;
   TRACK_GAP: number;

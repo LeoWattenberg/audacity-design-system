@@ -18,6 +18,7 @@ import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
 // import { TimeSelectionContextMenu } from './components/TimeSelectionContextMenu';
 import { useTracks } from './contexts/TracksContext';
+import type { Track } from './contexts/TracksContext';
 import { useSpectralSelection } from './contexts/SpectralSelectionContext';
 import { AudioEngineProvider, useAudioEngine } from './contexts/AudioEngineContext';
 import { AppContextMenus } from './components/AppContextMenus';
@@ -979,7 +980,7 @@ function CanvasDemoContent() {
       // Check if it's a stereo track
       const track = state.tracks[trackIndex];
       const clip = track?.clips.find(c => c.id === spectralSelection?.clipId);
-      const isStereo = clip && (clip as any).waveformLeft && (clip as any).waveformRight;
+      const isStereo = clip && clip.waveformLeft && clip.waveformRight;
       const isSpectrogramMode = track?.viewMode === 'spectrogram';
 
       // Full-height spectral selection cases:
@@ -1325,24 +1326,24 @@ function CanvasDemoContent() {
         dispatch({ type: 'SET_PIANO_ROLL_OPEN', payload: { open: false } });
       } else {
         // Find first MIDI track to open piano roll for
-        const midiTrackIndex = state.tracks.findIndex((t: any) => t.type === 'midi');
+        const midiTrackIndex = state.tracks.findIndex((t) => t.type === 'midi');
         if (midiTrackIndex >= 0) {
-          const clipIndex = (state.tracks[midiTrackIndex] as any).midiClips?.length > 0 ? 0 : null;
+          const clipIndex = state.tracks[midiTrackIndex].midiClips?.length ? 0 : null;
           dispatch({ type: 'SET_PIANO_ROLL_OPEN', payload: { open: true, trackIndex: midiTrackIndex, clipIndex } });
         } else {
           // Auto-create an empty MIDI track and open piano roll on it.
           // Use max(id)+1 so the id doesn't collide after a middle track was deleted.
           const newTrackIndex = state.tracks.length;
-          const nextTrackId = Math.max(...state.tracks.map((t: any) => t.id), 0) + 1;
+          const nextTrackId = Math.max(...state.tracks.map((t) => t.id), 0) + 1;
           const midiNamePattern = /^MIDI (\d+)$/;
           const usedMidiNumbers = state.tracks
-            .map((t: any) => {
+            .map((t) => {
               const m = midiNamePattern.exec(t.name ?? '');
               return m ? parseInt(m[1], 10) : NaN;
             })
             .filter((n: number) => !isNaN(n));
           const nextMidiNumber = usedMidiNumbers.length === 0 ? 1 : Math.max(...usedMidiNumbers) + 1;
-          const newTrack: any = {
+          const newTrack: Track = {
             id: nextTrackId,
             name: `MIDI ${nextMidiNumber}`,
             type: 'midi',

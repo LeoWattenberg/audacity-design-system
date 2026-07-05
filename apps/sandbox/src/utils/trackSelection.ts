@@ -1,3 +1,6 @@
+import type React from 'react';
+import type { TracksAction } from '../contexts/TracksContext';
+
 /**
  * Shared track selection utilities.
  *
@@ -9,7 +12,7 @@
 /** Exclusively select a single track (plain Enter / plain Click). */
 export function selectTrackExclusive(
   trackIndex: number,
-  dispatch: React.Dispatch<any>,
+  dispatch: React.Dispatch<TracksAction>,
 ) {
   dispatch({ type: 'DESELECT_ALL_CLIPS' });
   dispatch({ type: 'SELECT_TRACK', payload: trackIndex });
@@ -19,7 +22,7 @@ export function selectTrackExclusive(
 export function toggleTrackSelection(
   trackIndex: number,
   selectedTrackIndices: number[],
-  dispatch: React.Dispatch<any>,
+  dispatch: React.Dispatch<TracksAction>,
 ) {
   dispatch({ type: 'DESELECT_ALL_CLIPS' });
   const isSelected = selectedTrackIndices.includes(trackIndex);
