@@ -1,6 +1,22 @@
 import * as Tone from 'tone';
 import audioBufferToWav from 'audiobuffer-to-wav';
 
+/** Minimal structural type for a clip as seen by the playback engine. */
+interface PlaybackClip {
+  id: number | string;
+  start: number;
+  duration: number;
+  envelopePoints?: Array<{ time: number; value: number }>;
+}
+
+/** Minimal structural type for a track as seen by the playback engine. */
+interface PlaybackTrack {
+  type?: string;
+  gain?: number;
+  muted?: boolean;
+  clips: PlaybackClip[];
+}
+
 /**
  * Audio playback manager using Tone.js
  * Handles playback of audio clips with envelope automation
@@ -31,7 +47,7 @@ export class AudioPlaybackManager {
    */
   setMasterVolume(volume: number): void {
     const db = volume <= 0 ? -Infinity : 20 * Math.log10(volume);
-    (Tone as any).getDestination().volume.value = db;
+    Tone.getDestination().volume.value = db;
   }
 
   /**
@@ -89,7 +105,7 @@ export class AudioPlaybackManager {
   /**
    * Load and schedule all clips for playback
    */
-  loadClips(tracks: any[], startTime: number = 0): void {
+  loadClips(tracks: PlaybackTrack[], startTime: number = 0): void {
     // Clear existing players
     this.players.forEach(player => {
       player.unsync();
@@ -99,7 +115,7 @@ export class AudioPlaybackManager {
 
     // Create players for all clips that have audio buffers
     tracks.forEach(track => {
-      track.clips.forEach((clip: any) => {
+      track.clips.forEach((clip) => {
         const buffer = this.audioBuffers.get(String(clip.id));
         if (buffer) {
           // Only create players for clips that should play from the current start time
@@ -276,7 +292,7 @@ export class AudioPlaybackManager {
    * Applies envelope automation (gain curve) per clip.
    * Returns a Blob (audio/wav) and the duration in seconds.
    */
-  async mixdown(tracks: any[]): Promise<{ blob: Blob; duration: number; waveformData: number[] }> {
+  async mixdown(tracks: PlaybackTrack[]): Promise<{ blob: Blob; duration: number; waveformData: number[] }> {
     await Tone.start();
 
     // Calculate total duration from all clips

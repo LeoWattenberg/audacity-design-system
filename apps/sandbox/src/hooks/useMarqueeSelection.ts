@@ -185,7 +185,7 @@ export function useMarqueeSelection({
 
         const picks: Array<{ trackIndex: number; clipId: number }> = [];
         for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
-          const track = tracks[trackIndex] as any;
+          const track = tracks[trackIndex];
           const yOff = calculateTrackYOffset(trackIndex, tracks, topGap, trackGap, defaultTrackHeight);
           const trackH = track.height || defaultTrackHeight;
           const trackTop = yOff;

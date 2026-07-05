@@ -4,6 +4,14 @@ import { resolveTrackIndexFromY, buildSplitForTrack } from '../utils/canvasGeome
 import { calculateTrackYOffset } from '../utils/trackLayout';
 import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '../constants/canvas';
 
+/** Extract the element type of the `mutations` array from APPLY_CLIP_PLACEMENT. */
+type ClipMutation = Extract<TracksAction, { type: 'APPLY_CLIP_PLACEMENT' }>['payload']['mutations'][number];
+
+/** Filter null/undefined from an array with a proper type predicate. */
+function compact<T>(arr: (T | null | undefined)[]): T[] {
+  return arr.filter((x): x is T => x != null);
+}
+
 export interface UseSplitToolDeps {
   tracks: Track[];
   pixelsPerSecond: number;
@@ -93,24 +101,24 @@ export function useSplitTool(deps: UseSplitToolDeps): UseSplitToolResult {
       const ti = resolveTrackIndexFromY(y, tracks);
       const isOverBody = ti !== null && y >= calculateTrackYOffset(ti, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT) + CLIP_HEADER_HEIGHT;
       if (!isOverBody) return true;
-      const mutations = e.shiftKey
-        ? tracks.map((_, i) => buildSplitForTrack(i, time, tracks)).filter(Boolean)
+      const mutations: ClipMutation[] = e.shiftKey
+        ? compact(tracks.map((_, i) => buildSplitForTrack(i, time, tracks)))
         : (() => {
             const m = buildSplitForTrack(ti, time, tracks);
-            return m ? [m] : [];
+            return m ? [m as ClipMutation] : [];
           })();
       if (mutations.length > 0) {
         e.preventDefault();
         e.stopPropagation();
         dispatch({
           type: 'APPLY_CLIP_PLACEMENT',
-          payload: { placements: [], mutations: mutations as any },
+          payload: { placements: [], mutations },
         });
         // Select every left segment — the left side keeps the
         // original clipId, so the mutation's clipId points to it.
         dispatch({
           type: 'SELECT_CLIPS',
-          payload: (mutations as any[]).map((m) => ({
+          payload: mutations.map((m) => ({
             trackIndex: m.trackIndex,
             clipId: m.clipId,
           })),
@@ -139,24 +147,24 @@ export function useSplitTool(deps: UseSplitToolDeps): UseSplitToolResult {
         handleClipMouseDown(e);
         return true;
       }
-      const mutations = e.shiftKey
-        ? tracks.map((_, i) => buildSplitForTrack(i, time, tracks)).filter(Boolean)
+      const mutations: ClipMutation[] = e.shiftKey
+        ? compact(tracks.map((_, i) => buildSplitForTrack(i, time, tracks)))
         : (() => {
             const m = buildSplitForTrack(ti, time, tracks);
-            return m ? [m] : [];
+            return m ? [m as ClipMutation] : [];
           })();
       if (mutations.length > 0) {
         e.preventDefault();
         e.stopPropagation();
         dispatch({
           type: 'APPLY_CLIP_PLACEMENT',
-          payload: { placements: [], mutations: mutations as any },
+          payload: { placements: [], mutations },
         });
         // Select the LEFT segment of the split that happened on the
         // user-targeted track (the left segment keeps the original
         // clipId). With Shift held this picks the clip on the row
         // they were hovering, leaving the other tracks unselected.
-        const primary = (mutations as any[]).find((m) => m.trackIndex === ti) ?? (mutations[0] as any);
+        const primary = mutations.find((m) => m.trackIndex === ti) ?? mutations[0];
         if (primary) {
           dispatch({
             type: 'SELECT_CLIP',

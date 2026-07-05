@@ -86,8 +86,8 @@ export function usePlaybackControls(options: UsePlaybackControlsOptions): UsePla
   }, [dispatch]);
 
   // Apply per-track gain/mute to the audio manager after loading clips
-  const applyTrackGains = (audioManager: AudioPlaybackManager, tracks: any[]) => {
-    tracks.forEach((track: any, index: number) => {
+  const applyTrackGains = (audioManager: AudioPlaybackManager, tracks: TracksState['tracks']) => {
+    tracks.forEach((track, index) => {
       if (track.type === 'label') return;
       const gain = track.gain ?? -6;
       if (track.muted) {
