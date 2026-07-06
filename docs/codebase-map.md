@@ -36,6 +36,7 @@ For background on any section, follow the deep-dive doc links at the bottom.
 | `ContextMenuContext.tsx` | Context-menu visibility and positioning (wraps `useContextMenuState` hook); manages 8 menu types |
 | `SpectralSelectionContext.tsx` | Spectral selection read/write — 6 properties |
 | `AudioEngineContext.tsx` | Audio engine service (refs + methods, no React state) |
+| `PlaybackContext.tsx` | Value-provider for playback (`usePlayback()`): App calls `usePlaybackControls` and provides its return — consumers read `audioManagerRef`/`isPlaying`/etc. from context instead of drilled props |
 
 User preferences state is the exception — it lives in the components package, not here: `packages/components/src/contexts/PreferencesContext.tsx` (consumed app-wide via `usePreferences`; not yet decomposed into domain-specific contexts — see known debt).
 
@@ -85,6 +86,8 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 | `useTimeSelectionTabHandler.ts` | Global keydown: Tab behavior during a time selection |
 | `useFlatNavTabRouter.ts` | Global keydown: flat-nav Tab interception + DOM-ordered focus routing |
 
+**App effect/state hooks** (extracted from App.tsx): `useFocusDebugger`, `useMixerPanelListener`, `useTimeCodeFormats`, `useLocalStorageBackedState<T>`, `useInitialTrackSelection`, `useProjectAutoSave`, `useCloudProjectCleanup` — each a self-contained state/effect cluster. Big pure handlers live in `utils/`: `generateTone.ts`, `importAudio.ts`, `saveCloudProject.ts`.
+
 Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/utils/canvasGeometry.ts` (`resolveTrackIndexFromY`, `buildSplitForTrack`).
 
 ### Keyboard handlers (`apps/sandbox/src/hooks/handlers/`)
@@ -128,7 +131,7 @@ These are not-yet-decomposed monoliths. They work but are prime targets for futu
 
 | File | What it owns |
 |---|---|
-| `apps/sandbox/src/App.tsx` | Application root — wires up provider tree and top-level routing; accumulates bootstrap concerns |
+| `apps/sandbox/src/App.tsx` | Application root — provider tree, routing, and remaining orchestration (cloud-load flow, menu wiring, wheel-zoom/scroll sync). Phase-1 hooks/utils + PlaybackContext extracted; remaining bulk is struct-1b/struct-2 scope |
 | `apps/sandbox/src/components/EditorLayout.tsx` | Full editor chrome (toolbar, track panel, ruler, transport, drawer). Consumes `TracksContext` directly via `useTracks()` (typed — no `state`/`dispatch` prop-drill); self-contained effects extracted to hooks. Remaining bulk is layout JSX / prop-drilling to already-extracted child components — reducing it needs a selection/focus context (separate project) |
 | `apps/sandbox/src/components/Canvas.tsx` | Track/clip/label interaction dispatcher (renders no `<canvas>`). Grid → `GridOverlay`, split tool → `useSplitTool`, geometry → `utils/canvasGeometry` are now extracted; the remaining bulk is the ~935-line track-map loop wiring props to TrackNew (needs a Context-slicing change to reduce) |
 | `packages/components/src/PreferencesModal/PreferencesModal.tsx` | Preferences UI; all preference panels in one file |
