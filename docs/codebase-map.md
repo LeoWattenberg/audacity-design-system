@@ -86,7 +86,7 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 | `useTimeSelectionTabHandler.ts` | Global keydown: Tab behavior during a time selection |
 | `useFlatNavTabRouter.ts` | Global keydown: flat-nav Tab interception + DOM-ordered focus routing |
 
-**App effect/state hooks** (extracted from App.tsx): `useFocusDebugger`, `useMixerPanelListener`, `useTimeCodeFormats`, `useLocalStorageBackedState<T>`, `useInitialTrackSelection`, `useProjectAutoSave`, `useCloudProjectCleanup` — each a self-contained state/effect cluster. Big pure handlers live in `utils/`: `generateTone.ts`, `importAudio.ts`, `saveCloudProject.ts`.
+**App effect/state hooks** (extracted from App.tsx): `useFocusDebugger`, `useMixerPanelListener`, `useTimeCodeFormats`, `useLocalStorageBackedState<T>`, `useInitialTrackSelection`, `useProjectAutoSave`, `useCloudProjectCleanup` — each a self-contained state/effect cluster. Big handler flows (side-effectful — DOM/network/toasts/IndexedDB; take explicit deps objects) live in `utils/`: `generateTone.ts`, `importAudio.ts`, `saveCloudProject.ts`.
 
 Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/utils/canvasGeometry.ts` (`resolveTrackIndexFromY`, `buildSplitForTrack`).
 

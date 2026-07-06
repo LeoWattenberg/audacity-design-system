@@ -12,6 +12,8 @@ import { useState, useEffect } from 'react';
  * The initial value is read synchronously from localStorage on first render
  * (lazy initializer), mirroring the pattern used in the original useState calls.
  */
+// NOTE: pass module-stable `serialize` fns (e.g. JSON.stringify, String) — it sits in the
+// write-effect deps, so an inline arrow would re-write localStorage on every render.
 export function useLocalStorageBackedState<T>(
   key: string,
   initial: T,
