@@ -72,6 +72,8 @@ import { useInitialTrackSelection } from './hooks/useInitialTrackSelection';
 import { generateTone } from './utils/generateTone';
 import { importAudio } from './utils/importAudio';
 import { saveCloudProject } from './utils/saveCloudProject';
+import { useProjectAutoSave } from './hooks/useProjectAutoSave';
+import { useCloudProjectCleanup } from './hooks/useCloudProjectCleanup';
 
 const MIN_ZOOM = 10; // Minimum pixels per second (matches useZoomControls)
 
@@ -273,51 +275,17 @@ function CanvasDemoContent() {
     [cloudProjects],
   );
 
-  // When adieu's project list refreshes, prune any IndexedDB rows that were
-  // cached copies of cloud projects but no longer exist on the server (e.g.
-  // the user deleted them from adieu's web UI). Without this, the merge
-  // re-surfaces them as local-only entries.
-  //
-  // Guarded on `cloudProjectsLoaded` so the initial empty cloudProjects
-  // (before hydrate() returns) isn't mistaken for "every cached cloud
-  // project was deleted." Without this guard, every page reload with a
-  // valid token would wipe cached cloud-project thumbnails before the
-  // network round-trip completes.
-  React.useEffect(() => {
-    if (!adieuSignedIn || !adieuCloudProjectsLoaded) return;
-    const liveCloudIds = new Set(adieuCloudProjects.map((p) => p.id));
-    const orphans = indexedDBProjects.filter(
-      (p) => p.isCloudProject && !p.isUploading && !liveCloudIds.has(p.id),
-    );
-    if (orphans.length === 0) return;
-    (async () => {
-      await Promise.allSettled(orphans.map((o) => deleteProject(o.id)));
-      const updated = await getProjects();
-      setIndexedDBProjects(updated);
-    })();
-  }, [adieuSignedIn, adieuCloudProjectsLoaded, adieuCloudProjects, indexedDBProjects]);
-
-  // When the user is signed out of audio.com, wipe any IndexedDB rows that
-  // were cached cloud copies. They could belong to a previous account on
-  // this browser — leaving them around would leak project titles +
-  // thumbnails to whoever signs in next. Local-only projects are untouched.
-  // Also nudges the editor out of a cloud project if one was open.
-  React.useEffect(() => {
-    if (adieuSignedIn) return;
-    const cloudCached = indexedDBProjects.filter((p) => p.isCloudProject);
-    if (cloudCached.length === 0) return;
-    (async () => {
-      await Promise.allSettled(cloudCached.map((p) => deleteProject(p.id)));
-      const updated = await getProjects();
-      setIndexedDBProjects(updated);
-      if (currentProjectId && cloudCached.some((p) => p.id === currentProjectId)) {
-        setCurrentProjectId(null);
-        setIsCloudProject(false);
-        dispatch({ type: 'SET_TRACKS', payload: [] });
-        dispatch({ type: 'SET_MASTER_EFFECTS', payload: [] });
-      }
-    })();
-  }, [adieuSignedIn, indexedDBProjects, currentProjectId, dispatch]);
+  useCloudProjectCleanup({
+    adieuSignedIn,
+    adieuCloudProjectsLoaded,
+    adieuCloudProjects,
+    indexedDBProjects,
+    setIndexedDBProjects,
+    currentProjectId,
+    setCurrentProjectId,
+    setIsCloudProject,
+    dispatch,
+  });
 
   React.useEffect(() => {
     syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
@@ -669,31 +637,12 @@ function CanvasDemoContent() {
     loadProjects();
   }, []);
 
-  // Debounced auto-save: whenever the project state changes (tracks, effects,
-  // playhead, etc.), persist it back to IndexedDB so navigating Home → Project
-  // and re-opening the project picks up the latest edits.
-  React.useEffect(() => {
-    if (!currentProjectId) return;
-    const handle = setTimeout(async () => {
-      try {
-        const existing = await getProject(currentProjectId);
-        if (!existing) return;
-        await saveProject({
-          ...existing,
-          data: {
-            ...(existing.data ?? {}),
-            tracks: state.tracks,
-            masterEffects: state.masterEffects,
-            playheadPosition: state.playheadPosition,
-            audioBuffers: existing.data?.audioBuffers,
-          },
-        });
-      } catch (err) {
-        console.error('Auto-save failed:', err);
-      }
-    }, 600);
-    return () => clearTimeout(handle);
-  }, [currentProjectId, state.tracks, state.masterEffects, state.playheadPosition]);
+  useProjectAutoSave({
+    currentProjectId,
+    tracks: state.tracks,
+    masterEffects: state.masterEffects,
+    playheadPosition: state.playheadPosition,
+  });
 
   // Live-update the project title in IndexedDB + local state as the user types in the Save to Cloud dialog
   React.useEffect(() => {
