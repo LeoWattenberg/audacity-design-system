@@ -83,8 +83,9 @@ have fewer than 2 members dissolves to ungrouped.
 | Time-selection copy/cut → paste | any member sliced or omitted | ungrouped |
 | Any | fresh group would have <2 members | ungrouped |
 
-**Source-side corollary:** cut, delete-clip, delete-time-range, and
-delete-track dissolve any surviving group that drops below 2 members.
+**Source-side corollary:** cut, delete-clip, delete-time-range, delete-track,
+and overlap-resolution deletion (a dropped clip fully covering a group member)
+dissolve any surviving group that drops below 2 members.
 
 Implementation: `apps/sandbox/src/utils/clipGroupCopy.ts` (entirety +
 regrouping), `dissolveDegenerateGroups` in `contexts/reducers/shared.ts`.

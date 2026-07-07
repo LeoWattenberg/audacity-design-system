@@ -236,7 +236,7 @@ export function clipsReducer(state: TracksState, action: TracksAction): TracksSt
         return { ...track, clips: newClips };
       });
 
-      return { ...state, tracks: newTracks };
+      return { ...state, tracks: dissolveDegenerateGroups(newTracks) };
     }
 
     case 'TRIM_CLIP': {
