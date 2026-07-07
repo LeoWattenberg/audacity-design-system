@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SetStateAction } from 'react';
-import { handleCopy, handleCut } from '../clipboardHandlers';
+import { handleCopy, handleCut, handlePaste } from '../clipboardHandlers';
 import { initialState, type TracksState, type Clip } from '../../../contexts/TracksContext';
 import type { ClipboardState } from '../../useKeyboardShortcuts';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
@@ -120,5 +120,77 @@ describe('handleCut — wholeGroupIds capture + source dissolution', () => {
       .find(c => c[0].type === 'REPLACE_TRACKS_EDIT')![0];
     const survivor = replace.payload[0].clips.find((c: Clip) => c.id === 11);
     expect(survivor.groupId).toBeUndefined();
+  });
+});
+
+describe('handlePaste — regrouping', () => {
+  const groupedClipboardState = () => stateWith(
+    [
+      { id: 1, name: 't', clips: [
+        clip({ id: 10, groupId: 'g1' }),
+        clip({ id: 11, groupId: 'g1', start: 2 }),
+      ] },
+    ],
+    { focusedTrackIndex: 0, playheadPosition: 10 },
+  );
+
+  const clipboardWith = (wholeGroupIds?: string[]): ClipboardState => ({
+    clips: [
+      { ...clip({ id: 10, groupId: 'g1' }), trackIndex: 0 },
+      { ...clip({ id: 11, groupId: 'g1', start: 2 }), trackIndex: 0 },
+    ],
+    operation: 'copy',
+    ...(wholeGroupIds !== undefined ? { wholeGroupIds } : {}),
+  });
+
+  const pastedClips = (dispatch: ReturnType<typeof vi.fn>): Clip[] => {
+    const replace = dispatch.mock.calls.find(c => c[0].type === 'REPLACE_TRACKS_EDIT')![0];
+    // Pasted copies are the clips whose ids did not exist before (ids 10/11 are the originals).
+    return replace.payload[0].clips.filter((c: Clip) => c.id > 11);
+  };
+
+  it('whole group in clipboard -> pasted copies share a fresh group', () => {
+    const state = groupedClipboardState();
+    const { deps } = makeDeps(state);
+    handlePaste({ ...deps, clipboard: clipboardWith(['g1']) });
+    const pasted = pastedClips(deps.dispatch as ReturnType<typeof vi.fn>);
+    expect(pasted).toHaveLength(2);
+    expect(pasted[0].groupId).toBeDefined();
+    expect(pasted[0].groupId).toBe(pasted[1].groupId);
+    expect(pasted[0].groupId).not.toBe('g1');
+  });
+
+  it('partial group in clipboard -> pasted copies ungrouped', () => {
+    const state = groupedClipboardState();
+    const { deps } = makeDeps(state);
+    const partial: ClipboardState = {
+      clips: [{ ...clip({ id: 10, groupId: 'g1' }), trackIndex: 0 }],
+      operation: 'copy',
+      wholeGroupIds: [],
+    };
+    handlePaste({ ...deps, clipboard: partial });
+    const pasted = pastedClips(deps.dispatch as ReturnType<typeof vi.fn>);
+    expect(pasted).toHaveLength(1);
+    expect(pasted[0].groupId).toBeUndefined();
+  });
+
+  it('clipboard without wholeGroupIds (legacy/context-menu) -> ungrouped', () => {
+    const state = groupedClipboardState();
+    const { deps } = makeDeps(state);
+    handlePaste({ ...deps, clipboard: clipboardWith(undefined) });
+    const pasted = pastedClips(deps.dispatch as ReturnType<typeof vi.fn>);
+    expect(pasted.every(c => c.groupId === undefined)).toBe(true);
+  });
+
+  it('pasting twice mints two independent fresh groups', () => {
+    const state = groupedClipboardState();
+    const first = makeDeps(state);
+    handlePaste({ ...first.deps, clipboard: clipboardWith(['g1']) });
+    const second = makeDeps(state);
+    handlePaste({ ...second.deps, clipboard: clipboardWith(['g1']) });
+    const a = pastedClips(first.deps.dispatch as ReturnType<typeof vi.fn>)[0].groupId;
+    const b = pastedClips(second.deps.dispatch as ReturnType<typeof vi.fn>)[0].groupId;
+    expect(a).toBeDefined();
+    expect(a).not.toBe(b);
   });
 });

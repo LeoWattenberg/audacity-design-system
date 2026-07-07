@@ -4,7 +4,7 @@ import { dissolveDegenerateGroups } from '../../contexts/TracksContext';
 import type { MidiClip } from '@audacity-ui/core';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
 import { applySplitCut } from '../../utils/cutOperations';
-import { computeWholeGroupIds } from '../../utils/clipGroupCopy';
+import { computeWholeGroupIds, regroupCopiedClips } from '../../utils/clipGroupCopy';
 import type { ClipboardState } from '../useKeyboardShortcuts';
 
 export interface ClipboardHandlerDeps {
@@ -242,6 +242,20 @@ export function handlePaste(deps: ClipboardHandlerDeps): void {
   });
   if (skippedMidiClips > 0) {
     announce("MIDI clips can't be pasted yet");
+  }
+
+  // Re-group the pasted set per the copy invariant: one fresh groupId per
+  // source group captured whole at copy time; everything else ungrouped.
+  // Runs on the post-drop set (out-of-range/MIDI clips excluded) so a
+  // whole group whose siblings were dropped dissolves below two.
+  const pastedFlat = Array.from(clipsByTrack.values()).flat();
+  const regrouped = regroupCopiedClips(
+    pastedFlat,
+    new Set(clipboard.wholeGroupIds ?? [])
+  );
+  let regroupIdx = 0;
+  for (const [destIndex, trackClips] of clipsByTrack) {
+    clipsByTrack.set(destIndex, trackClips.map(() => regrouped[regroupIdx++]));
   }
 
   // Add clips to their respective tracks
