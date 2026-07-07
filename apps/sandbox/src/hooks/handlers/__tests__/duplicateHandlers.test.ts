@@ -42,4 +42,57 @@ describe('handleDuplicate', () => {
     const dupClip = addClipCall![0].payload.clip;
     expect(dupClip.start).toBe(3); // 0 (start) + 3 (duration)
   });
+
+  it('duplicating a whole group yields a FRESH group (not the original id)', () => {
+    const state = makeState({
+      focusedTrackIndex: 0,
+      tracks: [{ id: 1, name: 't', clips: [
+        { id: 10, name: 'a', start: 0, duration: 1, envelopePoints: [], selected: true, groupId: 'g1' },
+        { id: 11, name: 'b', start: 2, duration: 1, envelopePoints: [], selected: true, groupId: 'g1' },
+      ] }],
+    });
+    const el = document.createElement('div');
+    el.setAttribute('data-clip-id', '10');
+    el.setAttribute('data-track-index', '0');
+    el.setAttribute('tabindex', '-1');
+    document.body.appendChild(el);
+    el.focus();
+
+    const dispatch = vi.fn();
+    handleDuplicate(keyEvent(), { state, dispatch });
+
+    const dups = dispatch.mock.calls
+      .filter(c => c[0].type === 'ADD_CLIP')
+      .map(c => c[0].payload.clip);
+    expect(dups).toHaveLength(2);
+    expect(dups[0].groupId).toBeDefined();
+    expect(dups[0].groupId).toBe(dups[1].groupId);
+    expect(dups[0].groupId).not.toBe('g1');
+  });
+
+  it('duplicating a focused-out-of-selection grouped clip yields an UNGROUPED copy', () => {
+    // Focused clip 10 is NOT selected -> only it is duplicated -> partial group.
+    const state = makeState({
+      focusedTrackIndex: 0,
+      tracks: [{ id: 1, name: 't', clips: [
+        { id: 10, name: 'a', start: 0, duration: 1, envelopePoints: [], groupId: 'g1' },
+        { id: 11, name: 'b', start: 2, duration: 1, envelopePoints: [], groupId: 'g1' },
+      ] }],
+    });
+    const el = document.createElement('div');
+    el.setAttribute('data-clip-id', '10');
+    el.setAttribute('data-track-index', '0');
+    el.setAttribute('tabindex', '-1');
+    document.body.appendChild(el);
+    el.focus();
+
+    const dispatch = vi.fn();
+    handleDuplicate(keyEvent(), { state, dispatch });
+
+    const dups = dispatch.mock.calls
+      .filter(c => c[0].type === 'ADD_CLIP')
+      .map(c => c[0].payload.clip);
+    expect(dups).toHaveLength(1);
+    expect(dups[0].groupId).toBeUndefined();
+  });
 });
