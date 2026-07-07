@@ -4,6 +4,7 @@ import { dissolveDegenerateGroups } from '../../contexts/TracksContext';
 import type { MidiClip } from '@audacity-ui/core';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
 import { applySplitCut } from '../../utils/cutOperations';
+import { computeWholeGroupIds } from '../../utils/clipGroupCopy';
 import type { ClipboardState } from '../useKeyboardShortcuts';
 
 export interface ClipboardHandlerDeps {
@@ -38,7 +39,10 @@ export function handleCopy(deps: ClipboardHandlerDeps): void {
       setClipboard({
         clips: clipsInSelection,
         operation: 'copy',
-        timeSelection: { startTime, endTime }
+        timeSelection: { startTime, endTime },
+        wholeGroupIds: Array.from(
+          computeWholeGroupIds(clipsInSelection, state.tracks, { startTime, endTime })
+        ),
       });
     }
     return;
@@ -55,7 +59,11 @@ export function handleCopy(deps: ClipboardHandlerDeps): void {
   });
 
   if (selectedClips.length > 0) {
-    setClipboard({ clips: selectedClips, operation: 'copy' });
+    setClipboard({
+      clips: selectedClips,
+      operation: 'copy',
+      wholeGroupIds: Array.from(computeWholeGroupIds(selectedClips, state.tracks)),
+    });
   }
 }
 
@@ -82,7 +90,10 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
       setClipboard({
         clips: clipsInSelection,
         operation: 'cut',
-        timeSelection: { startTime, endTime }
+        timeSelection: { startTime, endTime },
+        wholeGroupIds: Array.from(
+          computeWholeGroupIds(clipsInSelection, state.tracks, { startTime, endTime })
+        ),
       });
 
       // Use split cut to trim partially-overlapping clips instead of deleting them
@@ -110,7 +121,11 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
   });
 
   if (selectedClips.length > 0) {
-    setClipboard({ clips: selectedClips, operation: 'cut' });
+    setClipboard({
+      clips: selectedClips,
+      operation: 'cut',
+      wholeGroupIds: Array.from(computeWholeGroupIds(selectedClips, state.tracks)),
+    });
 
     // Immediately remove the cut clips from tracks
     const tracksAfterCut = state.tracks.map((track, tIndex) => ({
