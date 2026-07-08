@@ -676,7 +676,21 @@ export function EditorLayout(props: EditorLayoutProps) {
                 }
                 meterClipped={state.recordingPeakLevel > 100}
                 meterStyle="default"
-                onMuteToggle={() => {
+                onMuteToggle={(e) => {
+                  // Cmd/Ctrl+click: exclusive mute — mute this track
+                  // (unconditionally), clear every other track's mute.
+                  if (e.metaKey || e.ctrlKey) {
+                    dispatch({ type: 'SET_TRACK_MUTED_EXCLUSIVE', payload: index });
+                    state.tracks.forEach((t, i) => {
+                      if (i === index) {
+                        audioManagerRef.current.setTrackMuted(i, true);
+                      } else {
+                        audioManagerRef.current.setTrackGain(i, t.gain ?? 75);
+                      }
+                    });
+                    return;
+                  }
+                  // Plain click: toggle this track's mute in place.
                   const newMuted = !(track.muted ?? false);
                   dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { muted: newMuted } } });
                   if (newMuted) {
@@ -685,7 +699,15 @@ export function EditorLayout(props: EditorLayoutProps) {
                     audioManagerRef.current.setTrackGain(index, track.gain ?? 75);
                   }
                 }}
-                onSoloToggle={() => {
+                onSoloToggle={(e) => {
+                  // Cmd/Ctrl+click: exclusive solo — solo this track
+                  // (unconditionally), clear every other track's solo.
+                  if (e.metaKey || e.ctrlKey) {
+                    dispatch({ type: 'SET_TRACK_SOLOED_EXCLUSIVE', payload: index });
+                    return;
+                  }
+                  // Plain click: toggle this track's solo — adds/removes
+                  // it from the solo pool without touching other tracks.
                   dispatch({ type: 'UPDATE_TRACK', payload: { index, track: { soloed: !(track.soloed ?? false) } } });
                 }}
                 onEffectsClick={() => {

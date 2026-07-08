@@ -229,6 +229,14 @@ export type TracksAction =
   | { type: 'REPLACE_TRACKS_EDIT'; payload: Track[] }
   | { type: 'ADD_TRACK'; payload: Track | (Track & { insertAt?: number }) }
   | { type: 'UPDATE_TRACK'; payload: { index: number; track: Partial<Track> } }
+  /** Set `muted: true` on the target track, `muted: false` on every
+   *  other track. Powers ctrl/cmd+click on the M button — an exclusive
+   *  mute that clears any existing mute pool. */
+  | { type: 'SET_TRACK_MUTED_EXCLUSIVE'; payload: number }
+  /** Set `soloed: true` on the target track, `soloed: false` on every
+   *  other track. Powers ctrl/cmd+click on the S button — an exclusive
+   *  solo that clears any existing solo pool. */
+  | { type: 'SET_TRACK_SOLOED_EXCLUSIVE'; payload: number }
   | { type: 'DELETE_TRACK'; payload: number }
   | { type: 'DELETE_TRACKS'; payload: number[] }
   | { type: 'SET_SELECTED_TRACKS'; payload: number[] }

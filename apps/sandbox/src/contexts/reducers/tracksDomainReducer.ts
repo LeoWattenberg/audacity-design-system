@@ -123,6 +123,22 @@ export function tracksDomainReducer(state: TracksState, action: TracksAction): T
       return { ...state, tracks: newTracks };
     }
 
+    case 'SET_TRACK_MUTED_EXCLUSIVE': {
+      const target = action.payload;
+      return {
+        ...state,
+        tracks: state.tracks.map((t, i) => ({ ...t, muted: i === target })),
+      };
+    }
+
+    case 'SET_TRACK_SOLOED_EXCLUSIVE': {
+      const target = action.payload;
+      return {
+        ...state,
+        tracks: state.tracks.map((t, i) => ({ ...t, soloed: i === target })),
+      };
+    }
+
     case 'DELETE_TRACK': {
       const newTracks = state.tracks.filter((_, index) => index !== action.payload);
       const newFocused = newTracks.length === 0

@@ -22,8 +22,16 @@ export interface TrackControlPanelProps {
   isMenuOpen?: boolean;
   onVolumeChange?: (volume: number) => void;
   onPanChange?: (pan: number) => void;
-  onMuteToggle?: () => void;
-  onSoloToggle?: () => void;
+  /** Called when the user clicks the M button. Receives the mouse
+   *  event so the host can distinguish plain click (toggle this
+   *  track) from cmd/ctrl+click (exclusive mute — set this track,
+   *  clear all others). */
+  onMuteToggle?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Called when the user clicks the S button. Receives the mouse
+   *  event so the host can distinguish plain click (toggle this
+   *  track's solo) from cmd/ctrl+click (exclusive solo — set this
+   *  track, clear all others). */
+  onSoloToggle?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onEffectsClick?: () => void;
   onAddLabelClick?: () => void;
   /** Called when the user commits a new track name. Enter / F2 /
@@ -848,7 +856,10 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
 
             {/* Mute and Solo buttons in header for audio tracks <= 70px */}
             {!isLabelTrack && trackHeight && trackHeight <= 70 && (
-              <div className="track-control-panel__button-group">
+              <div
+                className="track-control-panel__button-group"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <ToggleButton
                   active={isMuted}
                   onClick={onMuteToggle}
@@ -917,7 +928,10 @@ export const TrackControlPanel: React.FC<TrackControlPanelProps> = ({
             </div>
 
             {/* Mute and Solo Buttons */}
-            <div className="track-control-panel__button-group">
+            <div
+              className="track-control-panel__button-group"
+              onClick={(e) => e.stopPropagation()}
+            >
               <ToggleButton
                 active={isMuted}
                 onClick={onMuteToggle}
