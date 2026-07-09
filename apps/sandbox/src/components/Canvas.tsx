@@ -855,7 +855,13 @@ export function Canvas({
               for (let i = trackStart; i <= trackEnd; i++) selectedTracks.push(i);
               dispatch({
                 type: 'SET_TIME_SELECTION',
-                payload: { startTime, endTime },
+                payload: {
+                  startTime,
+                  endTime,
+                  // Shift+Click range select has an explicit vertical
+                  // extent — stamp it as the selection's scope.
+                  tracks: selectedTracks,
+                },
               });
               dispatch({
                 type: 'SET_SELECTED_TRACKS',

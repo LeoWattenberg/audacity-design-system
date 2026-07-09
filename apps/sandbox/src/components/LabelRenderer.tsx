@@ -238,6 +238,11 @@ export const LabelRenderer: React.FC<LabelRendererProps> = ({
                     payload: {
                       startTime: label.startTime,
                       endTime: label.endTime!,
+                      // Label expansion is an explicit all-tracks
+                      // gesture — the selection's scope says so, so
+                      // scoped operations act on every row even if
+                      // the track selection changes afterwards.
+                      tracks: allTrackIndices,
                     },
                   });
                   dispatch({
