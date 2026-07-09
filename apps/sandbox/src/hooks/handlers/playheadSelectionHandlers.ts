@@ -94,6 +94,12 @@ export function handlePlayheadMove(
       payload: {
         startTime: selectionEdgesRef.current.startTime,
         endTime: selectionEdgesRef.current.endTime,
+        // Preserve an existing scope; a fresh keyboard selection is
+        // scoped to the focused track (spec: the gesture defines
+        // the scope). No scope when nothing is focused — consumers
+        // fall back to selectedTrackIndices, then all tracks.
+        tracks: state.timeSelection?.tracks
+          ?? (state.focusedTrackIndex != null ? [state.focusedTrackIndex] : undefined),
       },
     });
     scrollPlayheadIntoView();

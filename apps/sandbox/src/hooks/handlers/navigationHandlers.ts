@@ -22,14 +22,19 @@ export function handleHomeEnd(e: KeyboardEvent, deps: NavigationHandlerDeps): vo
       if (selectionAnchorRef.current === null) {
         selectionAnchorRef.current = state.playheadPosition;
         dispatch({ type: 'DESELECT_ALL_CLIPS' });
-        if (state.selectedTrackIndices.length === 0 && state.tracks.length > 0) {
-          const allTrackIndices = state.tracks.map((_, idx) => idx);
-          dispatch({ type: 'SET_SELECTED_TRACKS', payload: allTrackIndices });
-        }
       }
       dispatch({
         type: 'SET_TIME_SELECTION',
-        payload: { startTime: 0, endTime: selectionAnchorRef.current },
+        payload: {
+          startTime: 0,
+          endTime: selectionAnchorRef.current,
+          // Preserve an existing scope; a fresh keyboard selection is
+          // scoped to the focused track (spec: the gesture defines
+          // the scope). No scope when nothing is focused — consumers
+          // fall back to selectedTrackIndices, then all tracks.
+          tracks: state.timeSelection?.tracks
+            ?? (state.focusedTrackIndex != null ? [state.focusedTrackIndex] : undefined),
+        },
       });
       dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: 0 });
     } else {
@@ -49,14 +54,19 @@ export function handleHomeEnd(e: KeyboardEvent, deps: NavigationHandlerDeps): vo
       if (selectionAnchorRef.current === null) {
         selectionAnchorRef.current = state.playheadPosition;
         dispatch({ type: 'DESELECT_ALL_CLIPS' });
-        if (state.selectedTrackIndices.length === 0 && state.tracks.length > 0) {
-          const allTrackIndices = state.tracks.map((_, idx) => idx);
-          dispatch({ type: 'SET_SELECTED_TRACKS', payload: allTrackIndices });
-        }
       }
       dispatch({
         type: 'SET_TIME_SELECTION',
-        payload: { startTime: selectionAnchorRef.current, endTime: projectEnd },
+        payload: {
+          startTime: selectionAnchorRef.current,
+          endTime: projectEnd,
+          // Preserve an existing scope; a fresh keyboard selection is
+          // scoped to the focused track (spec: the gesture defines
+          // the scope). No scope when nothing is focused — consumers
+          // fall back to selectedTrackIndices, then all tracks.
+          tracks: state.timeSelection?.tracks
+            ?? (state.focusedTrackIndex != null ? [state.focusedTrackIndex] : undefined),
+        },
       });
       dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: projectEnd });
     } else {
