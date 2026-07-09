@@ -274,9 +274,17 @@ export function useTimeSelection({
         // even if the pointer moves back up into an individual row —
         // the intent was "select everything", not "select the last
         // row I happened to clamp into".
-        const selectedIndices = dragStateRef.current.startedBelowAllTracks
+        const dragRange = dragStateRef.current.startedBelowAllTracks
           ? getTrackRange(0, Math.max(0, tracks.length - 1))
           : getTrackRange(clampedStartTrack, clampedCurrentTrack);
+        // If the drag started on an already-selected track, union the
+        // drag range with the full selection — the user is acting on
+        // their selection. If it started on an unselected track, scope
+        // to just the drag range (they're targeting that track only).
+        const dragStartedOnSelected = currentSelectedTracks.includes(clampedStartTrack);
+        const selectedIndices = dragStartedOnSelected
+          ? [...new Set([...dragRange, ...currentSelectedTracks])].sort((a, b) => a - b)
+          : dragRange;
 
         // If the drag started inside a clip (i.e., converted from spectral selection),
         // check if we should convert back to spectral when entering a spectral clip

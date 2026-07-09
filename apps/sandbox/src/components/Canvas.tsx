@@ -883,6 +883,33 @@ export function Canvas({
             }
           }
 
+          // Cmd/Ctrl+click on a track's bare canvas toggles that track
+          // in/out of the active time selection's scope.
+          if (
+            (e.metaKey || e.ctrlKey)
+            && !e.shiftKey
+            && !e.altKey
+            && timeSelection
+            && !(e.target as HTMLElement).closest('[data-clip-id]')
+          ) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const ti = resolveTrackIndexFromY(y, tracks);
+            if (ti !== null) {
+              const currentScope = timeSelection.tracks ?? tracks.map((_, i) => i);
+              const newScope = currentScope.includes(ti)
+                ? currentScope.filter((i) => i !== ti)
+                : [...currentScope, ti].sort((a, b) => a - b);
+              if (newScope.length > 0) {
+                dispatch({
+                  type: 'SET_TIME_SELECTION',
+                  payload: { ...timeSelection, tracks: newScope },
+                });
+              }
+            }
+            return;
+          }
+
           // (Single-clip lockout removed — clicking inside any clip
           // body now falls through to handleContainerClick so the
           // playhead moves, matching the multi-clip case.)

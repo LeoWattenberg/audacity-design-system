@@ -309,24 +309,21 @@ export function EditorLayout(props: EditorLayoutProps) {
   // alone (the two axes are independent). Without one, it falls back
   // to the classic track-selection toggle.
   const toggleScopeOrTrackSelection = (index: number) => {
+    toggleTrackSelection(index, state.selectedTrackIndices, dispatch);
+    // If there's an active time selection, keep its scope in sync with
+    // the new track selection so the selection visual appears on the
+    // newly added (or disappears from the removed) track.
     const ts = state.timeSelection;
-    if (ts?.tracks?.length) {
-      const nextTracks = ts.tracks.includes(index)
-        ? ts.tracks.filter((i) => i !== index)
-        : [...ts.tracks, index].sort((a, b) => a - b);
-      // Toggling the last row out clears the selection — an empty
-      // scope has nothing left to act on (same rule as track-delete
-      // remapping).
+    if (ts) {
+      const currentScope = ts.tracks ?? state.selectedTrackIndices;
+      const newScope = currentScope.includes(index)
+        ? currentScope.filter((i) => i !== index)
+        : [...currentScope, index].sort((a, b) => a - b);
       dispatch({
         type: 'SET_TIME_SELECTION',
-        payload: nextTracks.length > 0 ? { ...ts, tracks: nextTracks } : null,
+        payload: newScope.length > 0 ? { ...ts, tracks: newScope } : null,
       });
-      // Plant the anchor at the toggled row so a subsequent
-      // Shift+Enter extends the track selection from here.
-      setSelectionAnchor(index);
-      return;
     }
-    toggleTrackSelection(index, state.selectedTrackIndices, dispatch);
     setSelectionAnchor(index);
   };
 
@@ -885,6 +882,7 @@ export function EditorLayout(props: EditorLayoutProps) {
                 onClick={() => {
                   selectTrackExclusive(index, dispatch);
                   dispatch({ type: 'SET_FOCUSED_TRACK', payload: index });
+                  dispatch({ type: 'SET_TIME_SELECTION', payload: null });
                   // Anchor the just-clicked track so a subsequent
                   // Shift+Enter from another track extends the range
                   // from HERE — the user's most recent explicit

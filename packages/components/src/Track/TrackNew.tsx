@@ -1095,19 +1095,11 @@ const TrackNewComponent: React.FC<TrackProps> = ({
     const endX = CLIP_CONTENT_OFFSET + timeSelection.endTime * pixelsPerSecond;
     const selectionWidth = endX - startX;
 
-    // Three states (spec: time-selection scope rendering):
-    //   in scope                → bright band (drag color)
-    //   selected, out of scope  → subtle white wash so the selected
-    //                             fill reads through — no muddy dulling
-    //   unselected, out of scope→ original dim band
-    // rgba keeps grid lines visible through the selection.
     let overlayColor: string;
     if (inTimeSelectionScope) {
       overlayColor = isTimeSelectionDragging
         ? 'rgba(100, 127, 143, 0.55)'
         : 'rgba(98, 119, 136, 0.55)';
-    } else if (isSelected) {
-      overlayColor = 'rgba(255, 255, 255, 0.08)';
     } else {
       overlayColor = 'rgba(49, 56, 70, 0.55)';
     }
