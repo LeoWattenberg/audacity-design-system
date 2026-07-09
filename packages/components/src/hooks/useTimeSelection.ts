@@ -211,11 +211,13 @@ export function useTimeSelection({
           onTimeSelectionChange({
             startTime: initialSelection.endTime,
             endTime: newStartTime,
+            tracks: initialSelection.tracks,
           });
         } else {
           onTimeSelectionChange({
             startTime: newStartTime,
             endTime: initialSelection.endTime,
+            tracks: initialSelection.tracks,
           });
         }
       } else if (mode === 'resize-end' && initialSelection) {
@@ -227,11 +229,13 @@ export function useTimeSelection({
           onTimeSelectionChange({
             startTime: newEndTime,
             endTime: initialSelection.startTime,
+            tracks: initialSelection.tracks,
           });
         } else {
           onTimeSelectionChange({
             startTime: initialSelection.startTime,
             endTime: newEndTime,
+            tracks: initialSelection.tracks,
           });
         }
       } else if (mode === 'create') {
@@ -299,10 +303,14 @@ export function useTimeSelection({
           }
         }
 
-        // Normal time selection behavior
+        // Normal time selection behavior. `tracks` carries the drag's
+        // vertical scope so rendering and operations can act on only
+        // the rows the drag crossed — selectedTrackIndices is no
+        // longer touched by drags (the Canvas consumer is a no-op).
         onTimeSelectionChange({
           startTime: Math.min(startTime, endTime),
           endTime: Math.max(startTime, endTime),
+          tracks: selectedIndices,
         });
         onSelectedTracksChange(selectedIndices);
       }

@@ -559,14 +559,12 @@ export function Canvas({
           });
         }
       },
-      // Time-selection drags DO update track selection so the user's
-      // scope (which tracks the range covers, which tracks a Delete
-      // or Cmd+Arrow will act on) follows the drag naturally. A plain
-      // click (< 5px) is not a drag — useTimeSelection snapshots
-      // `initialSelectedTracks` on startDrag and restores it on
-      // mouseup when didActuallyDrag is false, so canvas clicks still
-      // leave the pre-existing selection intact.
-      onSelectedTracksChange: (trackIndices) => dispatch({ type: 'SET_SELECTED_TRACKS', payload: trackIndices }),
+      // Time-selection drags no longer touch `selectedTrackIndices`.
+      // The drag's vertical scope is carried on the timeSelection
+      // object itself (`tracks`), so operations and rendering can act
+      // on the rows the drag crossed while leaving the track
+      // selection alone. Track selection stays an explicit gesture.
+      onSelectedTracksChange: () => {},
       onFocusedTrackChange: (trackIndex) => {
         // Don't clear focus when clicking empty space - maintain current focus
         if (trackIndex !== null) {
