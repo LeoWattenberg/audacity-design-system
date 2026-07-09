@@ -11,9 +11,13 @@ const keyEvent = (over: Record<string, unknown> = {}) =>
 const makeDeps = (state: TracksState) => ({
   state,
   dispatch: vi.fn(),
+  selectionAnchor: null,
+  setSelectionAnchor: () => {},
   selectionAnchorRef: { current: null as number | null },
-  selectionEdgesRef: { current: null },
+  selectionEdgesRef: { current: null as { startTime: number; endTime: number } | null },
+  isFlatNavigation: false,
   scrollPlayheadIntoView: () => {},
+  trackSelectionMode: 'classic' as const,
 });
 
 const tsPayloads = (dispatch: ReturnType<typeof vi.fn>) =>
