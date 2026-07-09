@@ -73,3 +73,65 @@ describe('SELECT_CLIPS focus behavior', () => {
     expect(next.focusedTrackIndex).toBe(0); // unmoved
   });
 });
+
+describe('scope integrity under track delete/move', () => {
+  const threeTracks = () => [
+    track(1, [{ id: 10 }]),
+    track(2, [{ id: 20 }]),
+    track(3, [{ id: 30 }]),
+  ];
+
+  it('DELETE_TRACK shifts scope indices above the deleted track', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1, tracks: [1, 2] },
+    });
+    const next = tracksReducer(state, { type: 'DELETE_TRACK', payload: 0 });
+    expect(next.timeSelection?.tracks).toEqual([0, 1]);
+  });
+
+  it('DELETE_TRACK drops the deleted track from the scope', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1, tracks: [1, 2] },
+    });
+    const next = tracksReducer(state, { type: 'DELETE_TRACK', payload: 1 });
+    expect(next.timeSelection?.tracks).toEqual([1]);
+  });
+
+  it('DELETE_TRACK clears the whole time selection when the scope empties', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1, tracks: [1] },
+    });
+    const next = tracksReducer(state, { type: 'DELETE_TRACK', payload: 1 });
+    expect(next.timeSelection).toBeNull();
+  });
+
+  it('DELETE_TRACKS drops and shifts scope indices', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1, tracks: [0, 2] },
+    });
+    const next = tracksReducer(state, { type: 'DELETE_TRACKS', payload: [1] });
+    expect(next.timeSelection?.tracks).toEqual([0, 1]);
+  });
+
+  it('MOVE_TRACK remaps scope indices to follow the reorder', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1, tracks: [0] },
+    });
+    const next = tracksReducer(state, { type: 'MOVE_TRACK', payload: { fromIndex: 0, toIndex: 2 } });
+    expect(next.timeSelection?.tracks).toEqual([2]);
+  });
+
+  it('leaves a scopeless time selection untouched', () => {
+    const state = stateWith({
+      tracks: threeTracks(),
+      timeSelection: { startTime: 0, endTime: 1 },
+    });
+    const next = tracksReducer(state, { type: 'DELETE_TRACK', payload: 0 });
+    expect(next.timeSelection).toEqual({ startTime: 0, endTime: 1 });
+  });
+});

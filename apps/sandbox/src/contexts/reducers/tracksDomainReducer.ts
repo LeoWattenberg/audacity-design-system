@@ -1,6 +1,23 @@
 import type { TracksState, TracksAction, Track } from '../TracksContext';
 import { TRACK_COLOR_PALETTE, dissolveDegenerateGroups } from './shared';
 
+/** Remap a time-selection's scope after tracks are removed or
+ *  reordered. `remap` returns the new index for an old index, or null
+ *  to drop it. If the remap empties a previously non-empty scope the
+ *  whole selection is cleared — the rows it was scoped to are gone. */
+function remapTimeSelectionTracks(
+  timeSelection: TracksState['timeSelection'],
+  remap: (index: number) => number | null,
+): TracksState['timeSelection'] {
+  if (!timeSelection?.tracks?.length) return timeSelection;
+  const remapped = timeSelection.tracks
+    .map(remap)
+    .filter((i): i is number => i !== null)
+    .sort((a, b) => a - b);
+  if (remapped.length === 0) return null;
+  return { ...timeSelection, tracks: remapped };
+}
+
 export function tracksDomainReducer(state: TracksState, action: TracksAction): TracksState {
   switch (action.type) {
     case 'SET_TRACKS': {
@@ -153,6 +170,9 @@ export function tracksDomainReducer(state: TracksState, action: TracksAction): T
         selectedTrackIndices: state.selectedTrackIndices
           .filter((i) => i !== action.payload)
           .map((i) => (i > action.payload ? i - 1 : i)),
+        timeSelection: remapTimeSelectionTracks(state.timeSelection, (i) =>
+          i === action.payload ? null : i > action.payload ? i - 1 : i,
+        ),
       };
     }
 
@@ -172,6 +192,11 @@ export function tracksDomainReducer(state: TracksState, action: TracksAction): T
           .filter((i) => !indicesToDelete.has(i))
           .map((i) => i - [...indicesToDelete].filter((d) => d < i).length),
         focusedTrackIndex: newFocused,
+        timeSelection: remapTimeSelectionTracks(state.timeSelection, (i) =>
+          indicesToDelete.has(i)
+            ? null
+            : i - [...indicesToDelete].filter((d) => d < i).length,
+        ),
       };
     }
 
@@ -203,6 +228,12 @@ export function tracksDomainReducer(state: TracksState, action: TracksAction): T
         tracks: newTracks,
         focusedTrackIndex: toIndex,
         selectedTrackIndices: newSelected,
+        timeSelection: remapTimeSelectionTracks(state.timeSelection, (i) => {
+          if (i === fromIndex) return toIndex;
+          if (fromIndex < toIndex && i > fromIndex && i <= toIndex) return i - 1;
+          if (fromIndex > toIndex && i >= toIndex && i < fromIndex) return i + 1;
+          return i;
+        }),
       };
     }
 
