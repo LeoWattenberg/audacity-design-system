@@ -194,3 +194,49 @@ describe('handlePaste — regrouping', () => {
     expect(a).not.toBe(b);
   });
 });
+
+describe('time-selection copy/cut — scope resolution', () => {
+  const scopedState = () => stateWith(
+    [
+      { id: 1, name: 't1', clips: [clip({ id: 10 })] },
+      { id: 2, name: 't2', clips: [clip({ id: 20 })] },
+    ],
+    {
+      selectedTrackIndices: [0],
+      timeSelection: { startTime: 0, endTime: 2, tracks: [1] },
+      cutMode: 'split',
+    },
+  );
+
+  it('copy collects clips from the selection scope, not selectedTrackIndices', () => {
+    const { deps, getClipboard } = makeDeps(scopedState());
+    handleCopy(deps);
+    expect(getClipboard()?.clips.map((c) => c.id)).toEqual([20]);
+  });
+
+  it('cut removes clips only from the selection scope', () => {
+    const { deps } = makeDeps(scopedState());
+    handleCut(deps);
+    const replace = (deps.dispatch as ReturnType<typeof vi.fn>).mock.calls
+      .find((c) => c[0].type === 'REPLACE_TRACKS_EDIT')![0];
+    expect(replace.payload[0].clips).toHaveLength(1); // out of scope — kept
+    expect(replace.payload[1].clips).toHaveLength(0); // in scope — cut
+  });
+
+  it('wholeGroupIds respects the scope: a group member outside the scope makes the capture partial', () => {
+    const state = stateWith(
+      [
+        { id: 1, name: 't1', clips: [clip({ id: 10, groupId: 'g1' })] },
+        { id: 2, name: 't2', clips: [clip({ id: 20, groupId: 'g1' })] },
+      ],
+      {
+        selectedTrackIndices: [],
+        timeSelection: { startTime: 0, endTime: 2, tracks: [1] },
+      },
+    );
+    const { deps, getClipboard } = makeDeps(state);
+    handleCopy(deps);
+    expect(getClipboard()?.clips.map((c) => c.id)).toEqual([20]);
+    expect(getClipboard()?.wholeGroupIds).toEqual([]); // member 10 not captured
+  });
+});

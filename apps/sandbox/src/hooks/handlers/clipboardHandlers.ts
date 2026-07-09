@@ -5,6 +5,7 @@ import type { MidiClip } from '@audacity-ui/core';
 import type { AudioPlaybackManager } from '@audacity-ui/audio';
 import { applySplitCut } from '../../utils/cutOperations';
 import { computeWholeGroupIds, regroupCopiedClips } from '../../utils/clipGroupCopy';
+import { resolveTimeSelectionScope } from '../../utils/timeSelectionScope';
 import type { ClipboardState } from '../useKeyboardShortcuts';
 
 export interface ClipboardHandlerDeps {
@@ -22,11 +23,16 @@ export function handleCopy(deps: ClipboardHandlerDeps): void {
   if (state.timeSelection && state.timeSelection.renderOnCanvas !== false) {
     const { startTime, endTime } = state.timeSelection;
 
-    // Collect clips that intersect with the time selection on selected tracks
-    const selectedTracks = state.selectedTrackIndices;
+    // Collect clips that intersect the time selection on the tracks in
+    // the selection's scope (drag rows → selectedTracks → all).
+    const scopedTracks = resolveTimeSelectionScope(
+      state.timeSelection,
+      state.selectedTrackIndices,
+      state.tracks.map((_, idx) => idx),
+    );
     const clipsInSelection: (Clip & { trackIndex: number })[] = [];
     state.tracks.forEach((track, trackIndex) => {
-      if (selectedTracks.length > 0 && !selectedTracks.includes(trackIndex)) return;
+      if (!scopedTracks.includes(trackIndex)) return;
       track.clips.forEach(clip => {
         const clipEnd = clip.start + clip.duration;
         if (clip.start < endTime && clipEnd > startTime) {
@@ -74,10 +80,14 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
   if (state.timeSelection && state.timeSelection.renderOnCanvas !== false) {
     const { startTime, endTime } = state.timeSelection;
 
-    const selectedTracks = state.selectedTrackIndices;
+    const scopedTracks = resolveTimeSelectionScope(
+      state.timeSelection,
+      state.selectedTrackIndices,
+      state.tracks.map((_, idx) => idx),
+    );
     const clipsInSelection: (Clip & { trackIndex: number })[] = [];
     state.tracks.forEach((track, trackIndex) => {
-      if (selectedTracks.length > 0 && !selectedTracks.includes(trackIndex)) return;
+      if (!scopedTracks.includes(trackIndex)) return;
       track.clips.forEach(clip => {
         const clipEnd = clip.start + clip.duration;
         if (clip.start < endTime && clipEnd > startTime) {
@@ -101,7 +111,7 @@ export function handleCut(deps: ClipboardHandlerDeps): void {
         state.tracks,
         startTime,
         endTime,
-        selectedTracks.length > 0 ? selectedTracks : state.tracks.map((_, i) => i)
+        scopedTracks
       );
 
       dispatch({ type: 'REPLACE_TRACKS_EDIT', payload: dissolveDegenerateGroups(tracksAfterCut) });
