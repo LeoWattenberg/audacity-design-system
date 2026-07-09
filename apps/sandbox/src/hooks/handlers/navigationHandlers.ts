@@ -141,6 +141,7 @@ export function handleTrackFocus(e: KeyboardEvent, deps: NavigationHandlerDeps):
       } else if (trackSelectionMode === 'follows-focus' && !decouple) {
         // Plain arrow in follows-focus mode: selection moves with focus.
         dispatch({ type: 'SELECT_TRACK', payload: newIndex });
+        dispatch({ type: 'SET_TIME_SELECTION', payload: null });
         setSelectionAnchor(newIndex);
       } else {
         setSelectionAnchor(null);
@@ -228,6 +229,18 @@ export function handleEnterSelection(e: KeyboardEvent, deps: NavigationHandlerDe
       dispatch({ type: 'SET_SELECTED_TRACKS', payload: newSelection });
     } else if (e.metaKey || e.ctrlKey) {
       toggleTrackSelection(state.focusedTrackIndex, state.selectedTrackIndices, dispatch);
+      const ts = state.timeSelection;
+      if (ts) {
+        const currentScope = ts.tracks ?? state.selectedTrackIndices;
+        const idx = state.focusedTrackIndex;
+        const newScope = currentScope.includes(idx)
+          ? currentScope.filter((i) => i !== idx)
+          : [...currentScope, idx].sort((a, b) => a - b);
+        dispatch({
+          type: 'SET_TIME_SELECTION',
+          payload: newScope.length > 0 ? { ...ts, tracks: newScope } : null,
+        });
+      }
     } else {
       // Pressing Enter on a track that's already (exclusively) selected
       // toggles it OFF — same intuition as "Enter selects, Enter again
@@ -241,6 +254,7 @@ export function handleEnterSelection(e: KeyboardEvent, deps: NavigationHandlerDe
         setSelectionAnchor(null);
       } else {
         selectTrackExclusive(state.focusedTrackIndex, dispatch);
+        dispatch({ type: 'SET_TIME_SELECTION', payload: null });
       }
     }
   }
