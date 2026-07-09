@@ -120,3 +120,7 @@ out-of-scope rows a subtle white wash; unselected out-of-scope rows the dim
 band.
 
 Design doc: `docs/superpowers/specs/2026-07-09-time-selection-scope-design.md`.
+
+Finalizing a selection drag moves the playhead to the selection start —
+unless the playhead already lies inside the drawn range (edges inclusive),
+in which case it stays put. Applies to spectral selections too.

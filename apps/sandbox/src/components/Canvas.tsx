@@ -16,6 +16,7 @@ import { useSplitTool } from '../hooks/useSplitTool';
 import { resolveOverlap, type ClipPlacement } from '../utils/resolveOverlap';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
+import { playheadAfterSelectionFinalize } from '../utils/playheadAfterFinalize';
 import { LabelRenderer } from './LabelRenderer';
 import { GridOverlay } from './GridOverlay';
 import { calculateTrackYOffset } from '../utils/trackLayout';
@@ -541,7 +542,11 @@ export function Canvas({
       },
       onTimeSelectionFinalized: (sel) => {
         if (sel) {
-          dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: sel.startTime });
+          // Don't yank a playhead the user parked inside the range.
+          const nextPlayhead = playheadAfterSelectionFinalize(playheadPosition, sel);
+          if (nextPlayhead !== null) {
+            dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: nextPlayhead });
+          }
           // Park DOM focus on the focused track's .track container so
           // subsequent Tab / Shift+Tab presses hit that track's own
           // routing (ruler → next track, panel, etc.) instead of
@@ -599,7 +604,12 @@ export function Canvas({
         pendingSpectralSelectionRef.current = null;
 
         if (sel) {
-          dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: sel.startTime });
+          // Same rule as time-selection finalize: an overlapped
+          // playhead stays put.
+          const nextPlayhead = playheadAfterSelectionFinalize(playheadPosition, sel);
+          if (nextPlayhead !== null) {
+            dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: nextPlayhead });
+          }
         }
       },
       // Track selection is now decoupled from click gestures — a track
