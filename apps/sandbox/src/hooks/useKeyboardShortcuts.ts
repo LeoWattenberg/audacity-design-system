@@ -15,6 +15,7 @@ import { handleSplitAtPlayhead, handleSplitAllTracks } from './handlers/splitHan
 import { handleDuplicate } from './handlers/duplicateHandlers';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { confirmTrackDelete } from '../utils/confirmTrackDelete';
+import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
 
 export interface ClipboardState {
   clips: ((Clip | MidiClip) & { trackIndex: number })[];
@@ -660,11 +661,16 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
         ) {
           const { startTime, endTime } = state.timeSelection;
           const EPS = 0.0001;
-          const scopedTrackIndices = state.selectedTrackIndices?.length
-            ? state.selectedTrackIndices
-            : state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined
+          // Scope chain matches DELETE_TIME_RANGE: the selection's own
+          // tracks (the rows the user drew across) → legacy
+          // selectedTrackIndices → focused track.
+          const scopedTrackIndices = resolveTimeSelectionScope(
+            state.timeSelection,
+            state.selectedTrackIndices ?? [],
+            state.focusedTrackIndex !== null && state.focusedTrackIndex !== undefined
               ? [state.focusedTrackIndex]
-              : [];
+              : [],
+          );
           type Overlap = { trackIndex: number; clipId: number };
           const overlapping: Overlap[] = [];
           for (const ti of scopedTrackIndices) {

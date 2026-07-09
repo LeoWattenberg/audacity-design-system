@@ -15,6 +15,7 @@ import { useMarqueeSelection } from '../hooks/useMarqueeSelection';
 import { useSplitTool } from '../hooks/useSplitTool';
 import { resolveOverlap, type ClipPlacement } from '../utils/resolveOverlap';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
+import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
 import { LabelRenderer } from './LabelRenderer';
 import { GridOverlay } from './GridOverlay';
 import { calculateTrackYOffset } from '../utils/trackLayout';
@@ -1140,9 +1141,11 @@ export function Canvas({
                       c.start < endTime - EPS && c.start + c.duration > startTime + EPS,
                     );
                     if (focusedOverlaps) {
-                      const scopedTrackIndices = selectedTrackIndices.length > 0
-                        ? selectedTrackIndices
-                        : [trackIndex];
+                      const scopedTrackIndices = resolveTimeSelectionScope(
+                        timeSelection,
+                        selectedTrackIndices,
+                        [trackIndex],
+                      );
                       const overlapping: Array<{ trackIndex: number; clipId: number }> = [];
                       for (const ti of scopedTrackIndices) {
                         const t = tracks[ti];

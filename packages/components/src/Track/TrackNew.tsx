@@ -190,7 +190,7 @@ export interface TrackProps {
   /**
    * Time selection range (for rendering vibrant clip colors within selection)
    */
-  timeSelection?: { startTime: number; endTime: number } | null;
+  timeSelection?: { startTime: number; endTime: number; tracks?: number[]; renderOnCanvas?: boolean } | null;
 
   /**
    * Whether time selection is currently being dragged
@@ -395,6 +395,14 @@ const TrackNewComponent: React.FC<TrackProps> = ({
 }) => {
   const { theme } = useTheme();
   const trackColor = color && clipStyle !== 'classic' ? color as typeof TRACK_COLORS[number] : getTrackColor(trackIndex, clipStyle);
+  // Scope for the time-selection band. When the selection carries its
+  // own tracks list (populated by the creating gesture), highlight
+  // only those rows — independent of the broader track selection.
+  // Falls back to the legacy isSelected-driven look for scopeless
+  // selections.
+  const inTimeSelectionScope = timeSelection?.tracks
+    ? timeSelection.tracks.includes(trackIndex)
+    : isSelected;
   const [clipHiddenPoints, setClipHiddenPoints] = React.useState<Map<string | number, number[]>>(new Map());
   const [clipHoveredPoints, setClipHoveredPoints] = React.useState<Map<string | number, number[]>>(new Map());
   const [clipCursorPositions, setClipCursorPositions] = React.useState<Map<string | number, { time: number; db: number } | null>>(new Map());
@@ -874,7 +882,7 @@ const TrackNewComponent: React.FC<TrackProps> = ({
             width={clipWidth}
             height={height}
             selected={clipSelected}
-            inTimeSelection={timeSelection && isSelected && (timeSelection as any).renderOnCanvas !== false ? ( // justified: renderOnCanvas is a non-standard extension on TimeSelection — pending components sweep
+            inTimeSelection={timeSelection && inTimeSelectionScope && timeSelection.renderOnCanvas !== false ? (
               clip.start < timeSelection.endTime && (clip.start + clip.duration) > timeSelection.startTime
             ) : false}
             clipStartTime={clip.start}
@@ -1087,12 +1095,22 @@ const TrackNewComponent: React.FC<TrackProps> = ({
     const endX = CLIP_CONTENT_OFFSET + timeSelection.endTime * pixelsPerSecond;
     const selectionWidth = endX - startX;
 
-    // Selected tracks: #647F8F when dragging, #627788 when finalized
-    // Unselected tracks: #313846
-    // Use rgba so grid lines remain visible through the selection
-    const overlayColor = isSelected
-      ? (isTimeSelectionDragging ? 'rgba(100, 127, 143, 0.55)' : 'rgba(98, 119, 136, 0.55)')
-      : 'rgba(49, 56, 70, 0.55)';
+    // Three states (spec: time-selection scope rendering):
+    //   in scope                → bright band (drag color)
+    //   selected, out of scope  → subtle white wash so the selected
+    //                             fill reads through — no muddy dulling
+    //   unselected, out of scope→ original dim band
+    // rgba keeps grid lines visible through the selection.
+    let overlayColor: string;
+    if (inTimeSelectionScope) {
+      overlayColor = isTimeSelectionDragging
+        ? 'rgba(100, 127, 143, 0.55)'
+        : 'rgba(98, 119, 136, 0.55)';
+    } else if (isSelected) {
+      overlayColor = 'rgba(255, 255, 255, 0.08)';
+    } else {
+      overlayColor = 'rgba(49, 56, 70, 0.55)';
+    }
 
     return (
       <div

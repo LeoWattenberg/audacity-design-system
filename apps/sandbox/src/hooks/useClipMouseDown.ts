@@ -3,6 +3,7 @@ import { CLIP_CONTENT_OFFSET } from '@dilsonspickles/components';
 import { calculateLabelRows, isPointInLabel } from '../utils/labelLayout';
 import type { Track, Clip, TracksAction, ClipDragState } from '../contexts/TracksContext';
 import type { SpectralSelection } from '../contexts/SpectralSelectionContext';
+import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
 
 interface ClipMouseDownConfig {
   containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -25,7 +26,7 @@ interface ClipMouseDownConfig {
   onDragStart?: () => void;
   /** Active time selection — when the dragged clip overlaps this, the
    * drag picks up every overlapping clip on the selected tracks. */
-  timeSelection?: { startTime: number; endTime: number; renderOnCanvas?: boolean } | null;
+  timeSelection?: { startTime: number; endTime: number; renderOnCanvas?: boolean; tracks?: number[] } | null;
   /** Tracks the time selection scope is constrained to. Empty list
    * falls back to every track. */
   selectedTrackIndices?: number[];
@@ -143,9 +144,13 @@ export function useClipMouseDown({
                 !!timeSelection
                 && clip.start < timeSelection.endTime - EPS
                 && clip.start + clip.duration > timeSelection.startTime + EPS;
-              const scopedTrackIndices = (selectedTrackIndices && selectedTrackIndices.length > 0)
-                ? selectedTrackIndices
-                : tracks.map((_, idx) => idx);
+              // Same chain as delete/copy: the drag's own rows first,
+              // so drag-into-time-selection sweeps what the user drew.
+              const scopedTrackIndices = resolveTimeSelectionScope(
+                timeSelection,
+                selectedTrackIndices ?? [],
+                tracks.map((_, idx) => idx),
+              );
               const trackInSelectionScope = scopedTrackIndices.includes(trackIndex);
 
               if (timeSelection && clipOverlapsSelection && trackInSelectionScope) {
