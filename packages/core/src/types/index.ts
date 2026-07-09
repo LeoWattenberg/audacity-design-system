@@ -58,6 +58,13 @@ export interface EnvelopeDragState {
 export interface TimeSelection {
   startTime: number;
   endTime: number;
+  /** Optional list of track indices the selection spans. Populated by
+   *  the gesture that created the selection (drag: rows crossed;
+   *  keyboard: focused track) so operations and rendering can scope to
+   *  those rows independently of the broader track selection. Empty /
+   *  undefined = consumers fall back to selectedTrackIndices, then to
+   *  their own default scope. */
+  tracks?: number[];
 }
 
 export interface Label {

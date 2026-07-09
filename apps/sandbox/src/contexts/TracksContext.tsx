@@ -100,6 +100,11 @@ export interface TimeSelection {
   startTime: number;
   endTime: number;
   renderOnCanvas?: boolean; // If false, only show in ruler (e.g., when clip is selected)
+  /** Tracks the selection spans. Populated by the creating gesture
+   *  (drag rows / focused track). Operations resolve scope via
+   *  utils/timeSelectionScope.ts: this list → selectedTrackIndices →
+   *  operation default. */
+  tracks?: number[];
 }
 
 // SpectralSelection moved to SpectralSelectionContext for performance
