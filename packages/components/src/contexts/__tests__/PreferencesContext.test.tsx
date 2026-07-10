@@ -1,6 +1,8 @@
+import React from 'react';
 import { render, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreferencesProvider, usePreferences } from '../PreferencesContext';
+import { useEditingBehaviorPrefs } from '../PreferencesContext';
 
 afterEach(cleanup);
 beforeEach(() => localStorage.clear());
@@ -34,5 +36,25 @@ describe('PreferencesContext persistence', () => {
     act(() => value.updatePreference('theme', 'dark'));
     act(() => value.resetPreferences());
     expect(value.preferences.theme).toBe('light');
+  });
+
+  it('editing-behavior consumers do not re-render on appearance changes', () => {
+    let editingRenders = 0;
+    let value!: ReturnType<typeof usePreferences>;
+    function EditingProbe() {
+      useEditingBehaviorPrefs();
+      editingRenders++;
+      return null;
+    }
+    const Memoized = React.memo(EditingProbe);
+    render(
+      <PreferencesProvider>
+        <Probe onValue={(v) => (value = v)} />
+        <Memoized />
+      </PreferencesProvider>
+    );
+    const before = editingRenders;
+    act(() => value.updatePreference('theme', 'dark'));
+    expect(editingRenders).toBe(before); // context value memoized on trackSelectionMode only
   });
 });

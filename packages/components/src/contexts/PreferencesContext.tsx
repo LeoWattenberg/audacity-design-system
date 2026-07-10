@@ -4,7 +4,7 @@
  * Manages all user preferences with localStorage persistence
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 
 export interface PreferencesState {
   // General
@@ -142,6 +142,30 @@ interface PreferencesContextValue {
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
 
+export interface GeneralPrefsValue {
+  operatingSystem: PreferencesState['operatingSystem'];
+  showWelcomeDialog: boolean;
+  checkForUpdates: boolean;
+  updatePreference: PreferencesContextValue['updatePreference'];
+}
+
+const GeneralPrefsContext = createContext<GeneralPrefsValue | undefined>(undefined);
+
+export interface AppearancePrefsValue {
+  theme: PreferencesState['theme'];
+  clipStyle: PreferencesState['clipStyle'];
+  updatePreference: PreferencesContextValue['updatePreference'];
+}
+
+const AppearancePrefsContext = createContext<AppearancePrefsValue | undefined>(undefined);
+
+export interface EditingBehaviorPrefsValue {
+  trackSelectionMode: PreferencesState['trackSelectionMode'];
+  updatePreference: PreferencesContextValue['updatePreference'];
+}
+
+const EditingBehaviorPrefsContext = createContext<EditingBehaviorPrefsValue | undefined>(undefined);
+
 interface PreferencesProviderProps {
   children: ReactNode;
 }
@@ -171,19 +195,46 @@ export function PreferencesProvider({ children }: PreferencesProviderProps) {
     }
   }, [preferences]);
 
-  const updatePreference = <K extends keyof PreferencesState>(
-    key: K,
-    value: PreferencesState[K]
-  ) => {
-    setPreferences((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
+  const updatePreference = useCallback(
+    <K extends keyof PreferencesState>(key: K, value: PreferencesState[K]) => {
+      setPreferences((prev) => ({
+        ...prev,
+        [key]: value,
+      }));
+    },
+    []
+  );
 
   const resetPreferences = () => {
     setPreferences(defaultPreferences);
   };
+
+  const generalValue = useMemo<GeneralPrefsValue>(
+    () => ({
+      operatingSystem: preferences.operatingSystem,
+      showWelcomeDialog: preferences.showWelcomeDialog,
+      checkForUpdates: preferences.checkForUpdates,
+      updatePreference,
+    }),
+    [preferences.operatingSystem, preferences.showWelcomeDialog, preferences.checkForUpdates, updatePreference]
+  );
+
+  const appearanceValue = useMemo<AppearancePrefsValue>(
+    () => ({
+      theme: preferences.theme,
+      clipStyle: preferences.clipStyle,
+      updatePreference,
+    }),
+    [preferences.theme, preferences.clipStyle, updatePreference]
+  );
+
+  const editingBehaviorValue = useMemo<EditingBehaviorPrefsValue>(
+    () => ({
+      trackSelectionMode: preferences.trackSelectionMode,
+      updatePreference,
+    }),
+    [preferences.trackSelectionMode, updatePreference]
+  );
 
   return (
     <PreferencesContext.Provider
@@ -193,7 +244,13 @@ export function PreferencesProvider({ children }: PreferencesProviderProps) {
         resetPreferences,
       }}
     >
-      {children}
+      <GeneralPrefsContext.Provider value={generalValue}>
+        <AppearancePrefsContext.Provider value={appearanceValue}>
+          <EditingBehaviorPrefsContext.Provider value={editingBehaviorValue}>
+            {children}
+          </EditingBehaviorPrefsContext.Provider>
+        </AppearancePrefsContext.Provider>
+      </GeneralPrefsContext.Provider>
     </PreferencesContext.Provider>
   );
 }
@@ -203,6 +260,36 @@ export function usePreferences(): PreferencesContextValue {
 
   if (!context) {
     throw new Error('usePreferences must be used within PreferencesProvider');
+  }
+
+  return context;
+}
+
+export function useGeneralPrefs(): GeneralPrefsValue {
+  const context = useContext(GeneralPrefsContext);
+
+  if (!context) {
+    throw new Error('useGeneralPrefs must be used within PreferencesProvider');
+  }
+
+  return context;
+}
+
+export function useAppearancePrefs(): AppearancePrefsValue {
+  const context = useContext(AppearancePrefsContext);
+
+  if (!context) {
+    throw new Error('useAppearancePrefs must be used within PreferencesProvider');
+  }
+
+  return context;
+}
+
+export function useEditingBehaviorPrefs(): EditingBehaviorPrefsValue {
+  const context = useContext(EditingBehaviorPrefsContext);
+
+  if (!context) {
+    throw new Error('useEditingBehaviorPrefs must be used within PreferencesProvider');
   }
 
   return context;
