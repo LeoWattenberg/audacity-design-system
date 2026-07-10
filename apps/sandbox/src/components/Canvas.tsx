@@ -26,6 +26,9 @@ import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
 import { playheadAfterSelectionFinalize } from '../utils/playheadAfterFinalize';
 import { LabelRenderer } from './LabelRenderer';
 import { GridOverlay } from './GridOverlay';
+import { SnapGuideline } from './canvas/SnapGuideline';
+import { SplitPreviewLine } from './canvas/SplitPreviewLine';
+import { MarqueeRect } from './canvas/MarqueeRect';
 import { calculateTrackYOffset } from '../utils/trackLayout';
 import { resolveTrackIndexFromY } from '../utils/canvasGeometry';
 import { computeCanvasHeights } from '../utils/canvasLayout';
@@ -628,50 +631,18 @@ export function Canvas({
           height so the user can see which grid line each edge is
           locking to. */}
       {snapGuidelineTime !== null && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            bottom: 0,
-            left: `${CLIP_CONTENT_OFFSET + snapGuidelineTime * pixelsPerSecond}px`,
-            width: '1px',
-            backgroundColor: snapGuidelineColor,
-            boxShadow: snapGuidelineShadow,
-            pointerEvents: 'none',
-            zIndex: 11,
-          }}
+        <SnapGuideline
+          snapGuidelineTime={snapGuidelineTime}
+          pixelsPerSecond={pixelsPerSecond}
+          color={snapGuidelineColor}
+          shadow={snapGuidelineShadow}
         />
       )}
 
       {/* Split-tool preview line. Bare hover shows it spanning just the
           hovered track; Shift held extends it across all tracks. */}
       {splitMode && splitHover && (
-        (() => {
-          const fullSpan = splitHover.shiftKey;
-          // Shift extends the line to the full canvas height (top:0 →
-          // bottom:0) so it visibly reaches past the last track into the
-          // empty area below. Without Shift the line is constrained to
-          // the hovered track's body.
-          const positional: React.CSSProperties = fullSpan
-            ? { top: 0, bottom: 0 }
-            : {
-                top: `${calculateTrackYOffset(splitHover.trackIndex, tracks, TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT)}px`,
-                height: `${tracks[splitHover.trackIndex].height || DEFAULT_TRACK_HEIGHT}px`,
-              };
-          return (
-            <div
-              style={{
-                position: 'absolute',
-                left: `${splitHover.x}px`,
-                ...positional,
-                width: '1px',
-                background: theme.border.focus,
-                pointerEvents: 'none',
-                zIndex: 100,
-              }}
-            />
-          );
-        })()
+        <SplitPreviewLine splitHover={splitHover} tracks={tracks} focusColor={theme.border.focus} />
       )}
       {/* Beat/measure grid — rendered behind tracks. Spans the full
           canvas-container so gridlines also fill the empty scroll-
@@ -1779,20 +1750,7 @@ export function Canvas({
             below any UI chrome. Skipped when null so the DOM stays
             clean for normal interactions. */}
         {marquee.marqueeRect && (
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: `${marquee.marqueeRect.left}px`,
-              top: `${marquee.marqueeRect.top}px`,
-              width: `${marquee.marqueeRect.width}px`,
-              height: `${marquee.marqueeRect.height}px`,
-              border: `1px solid ${theme.border.focus}`,
-              background: 'rgba(132, 181, 255, 0.12)',
-              pointerEvents: 'none',
-              zIndex: 200,
-            }}
-          />
+          <MarqueeRect marqueeRect={marquee.marqueeRect} focusColor={theme.border.focus} />
         )}
 
         {/* Spectral Selection Overlay */}
