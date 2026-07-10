@@ -21,6 +21,7 @@ import {
 import { saveProject as saveProjectLocal, getProjects as getProjectsLocal } from '../utils/projectDatabase';
 import { encodeBufferMap } from '../lib/binary';
 import { usePlayback } from '../contexts/PlaybackContext';
+import { useLoopRegionContext } from '../contexts/LoopRegionContext';
 
 const openAdieu = (path: string) => {
   window.open(`${ADIEU_BASE}${path}`, '_blank', 'noopener,noreferrer');
@@ -82,9 +83,6 @@ export interface AppDialogsProps {
 
   // Export
   initialExportType: string;
-  loopRegionEnabled: boolean;
-  loopRegionStart: number | null;
-  loopRegionEnd: number | null;
   alertDialogTitle: string;
   setAlertDialogTitle: React.Dispatch<React.SetStateAction<string>>;
   alertDialogMessage: string;
@@ -129,6 +127,7 @@ export function AppDialogs(props: AppDialogsProps) {
   const { state, dispatch } = useTracks();
   const { tracks, masterEffects } = state;
   const { audioManagerRef } = usePlayback();
+  const { loopRegionEnabled, loopRegionStart, loopRegionEnd } = useLoopRegionContext();
   const dialogs = useDialogs();
   const { effectDialog, setEffectDialog, effectContextMenu, setEffectContextMenu } = useContextMenus();
   const {
@@ -161,7 +160,7 @@ export function AppDialogs(props: AppDialogsProps) {
     availableAudioInputs, availableAudioOutputs,
     macros, setMacros, selectedMacroId, setSelectedMacroId,
     plugins, setPlugins,
-    initialExportType, loopRegionEnabled, loopRegionStart, loopRegionEnd,
+    initialExportType,
     alertDialogTitle, setAlertDialogTitle, alertDialogMessage, setAlertDialogMessage,
     zoomToggleLevel1, setZoomToggleLevel1, zoomToggleLevel2, setZoomToggleLevel2,
     scrollContainerRef, handleSaveToComputer,

@@ -1640,9 +1640,6 @@ function CanvasDemoContent() {
         plugins={allPlugins}
         setPlugins={setPluginsWithSync}
         initialExportType={initialExportType}
-        loopRegionEnabled={loopRegionEnabled}
-        loopRegionStart={loopRegionStart}
-        loopRegionEnd={loopRegionEnd}
         alertDialogTitle={alertDialogTitle}
         setAlertDialogTitle={setAlertDialogTitle}
         alertDialogMessage={alertDialogMessage}
