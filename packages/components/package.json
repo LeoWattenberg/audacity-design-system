@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup",
-    "dev": "NODE_OPTIONS='--max-old-space-size=8192' tsup --watch",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup --watch",
     "lint": "echo 'No linting configured yet'",
     "test": "vitest run",
     "test:watch": "vitest",
