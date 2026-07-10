@@ -49,6 +49,9 @@ import { useProjectManagement } from './hooks/useProjectManagement';
 import { DialogProvider, useDialogs } from './contexts/DialogContext';
 import { ContextMenuProvider, useContextMenus } from './contexts/ContextMenuContext';
 import { useLoopRegion } from './hooks/useLoopRegion';
+import { useMasterMeter } from './hooks/useMasterMeter';
+import { useDraggableToolbar } from './hooks/useDraggableToolbar';
+import { useAudioDeviceMenu } from './hooks/useAudioDeviceMenu';
 import { useFocusDebugger } from './hooks/useFocusDebugger';
 import { useMixerPanelListener } from './hooks/useMixerPanelListener';
 import { useTimeCodeFormats } from './hooks/useTimeCodeFormats';
@@ -286,11 +289,12 @@ function CanvasDemoContent() {
   const [macros, setMacros] = React.useState<Array<{ id: string; name: string; steps: Array<{ command: string; parameters: string }> }>>([]);
   const [selectedMacroId, setSelectedMacroId] = React.useState<string | undefined>(undefined);
 
-  const [audioSetupMenuAnchor, setAudioSetupMenuAnchor] = React.useState<{ x: number; y: number } | null>(null);
-  const [selectedRecordingDevice, setSelectedRecordingDevice] = React.useState('MacBook Pro Microphone');
-  const [selectedPlaybackDevice, setSelectedPlaybackDevice] = React.useState('Built-in Speakers');
-  const [availableAudioInputs, setAvailableAudioInputs] = React.useState<MediaDeviceInfo[]>([]);
-  const [availableAudioOutputs, setAvailableAudioOutputs] = React.useState<MediaDeviceInfo[]>([]);
+  const {
+    audioSetupMenuAnchor, setAudioSetupMenuAnchor,
+    selectedRecordingDevice, setSelectedRecordingDevice,
+    selectedPlaybackDevice, setSelectedPlaybackDevice,
+    availableAudioInputs, availableAudioOutputs,
+  } = useAudioDeviceMenu();
   // View options
   const [showRmsInWaveform, setShowRmsInWaveform] = React.useState(false);
   const [showVerticalRulers, setShowVerticalRulers] = React.useState(true);
@@ -299,16 +303,7 @@ function CanvasDemoContent() {
   const [timelineFormat, setTimelineFormat] = React.useState<'minutes-seconds' | 'beats-measures'>('minutes-seconds');
   const [bpm, setBpm] = React.useState(120);
 
-  // Tools toolbar position — gripper-drag detaches it and the user can drop
-  // anywhere. Releasing near the top / bottom edge snaps to a dock; anywhere
-  // else commits a floating position. Snap thresholds are intentionally
-  // generous (1.5× toolbar height) so the user gets a free dock without
-  // having to land precisely on the edge.
-  type ToolbarPosition =
-    | { kind: 'top' }
-    | { kind: 'bottom' }
-    | { kind: 'floating'; x: number; y: number };
-  const [toolbarPosition, setToolbarPosition] = React.useState<ToolbarPosition>({ kind: 'top' });
+  const { toolbarPosition, handleToolbarGripperMouseDown } = useDraggableToolbar();
   const [meterOrientation, setMeterOrientation] = React.useState<'horizontal' | 'vertical'>('horizontal');
 
   // Project-toolbar responsiveness (compact icon swap + label drop) is
@@ -319,44 +314,6 @@ function CanvasDemoContent() {
     if (next === 'spectral-editing') dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: true });
     else if (next === 'classic') dispatch({ type: 'SET_SPECTROGRAM_MODE', payload: false });
   };
-  const dragStateRef = React.useRef<{ offsetX: number; offsetY: number } | null>(null);
-
-  const handleToolbarGripperMouseDown = React.useCallback(
-    (e: React.MouseEvent, rect: DOMRect) => {
-      dragStateRef.current = {
-        offsetX: e.clientX - rect.left,
-        offsetY: e.clientY - rect.top,
-      };
-      // Immediately flip to floating at the toolbar's current rect so the
-      // first mousemove doesn't jump — the toolbar stays under the cursor.
-      setToolbarPosition({ kind: 'floating', x: rect.left, y: rect.top });
-
-      const SNAP_PX = 72;
-      const onMove = (ev: MouseEvent) => {
-        const state = dragStateRef.current;
-        if (!state) return;
-        setToolbarPosition({
-          kind: 'floating',
-          x: ev.clientX - state.offsetX,
-          y: ev.clientY - state.offsetY,
-        });
-      };
-      const onUp = (ev: MouseEvent) => {
-        dragStateRef.current = null;
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        if (ev.clientY < SNAP_PX) {
-          setToolbarPosition({ kind: 'top' });
-        } else if (ev.clientY > window.innerHeight - SNAP_PX) {
-          setToolbarPosition({ kind: 'bottom' });
-        }
-        // else: leave it floating at the last position
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [],
-  );
   const [beatsPerMeasure, setBeatsPerMeasure] = React.useState(4);
   const [noteValue, setNoteValue] = React.useState(4);
 
@@ -491,23 +448,9 @@ function CanvasDemoContent() {
   });
 
   // Master meter: compute combined level from all track meters
-  const [masterVolume, setMasterVolume] = React.useState(1);
-  const handleMasterVolumeChange = React.useCallback((vol: number) => {
-    setMasterVolume(vol);
-    audioManagerRef.current.setMasterVolume(vol);
-  }, []);
-  // Master meter — read directly from the dedicated master Tone.Meter in
-  // the audio engine (post-mix, post-master-volume). The audio engine
-  // applies its own smoothing, so the displayed value tracks the audio
-  // continuously instead of dipping to −60 between samples.
-  const masterLevelLeft = React.useMemo(() => {
-    if (masterMeterLevel <= 0) return -60;
-    const db = (masterMeterLevel / 100) * 60 - 60;
-    return Math.max(-60, Math.min(0, db));
-  }, [masterMeterLevel]);
-  // Slight stereo simulation until the audio engine exposes per-channel
-  // levels — same dB, 0.5 dB attenuated on the right.
-  const masterLevelRight = React.useMemo(() => Math.max(-60, masterLevelLeft - 0.5), [masterLevelLeft]);
+  const {
+    masterVolume, handleMasterVolumeChange, masterLevelLeft, masterLevelRight,
+  } = useMasterMeter({ masterMeterLevel, audioManagerRef });
 
   // Loop region
   const loopRegion = useLoopRegion({
@@ -592,27 +535,6 @@ function CanvasDemoContent() {
       if (proj) saveProject({ ...proj, title: cloudProjectName });
     });
   }, [cloudProjectName, isSaveToCloudDialogOpen, currentProjectId]);
-
-  // Load available audio devices when audio setup menu opens
-  React.useEffect(() => {
-    if (audioSetupMenuAnchor) {
-      // Load input devices
-      RecordingManager.getAudioInputDevices().then(devices => {
-        setAvailableAudioInputs(devices);
-        if (devices.length > 0 && !selectedRecordingDevice) {
-          setSelectedRecordingDevice(devices[0].label || 'Default');
-        }
-      });
-
-      // Load output devices
-      RecordingManager.getAudioOutputDevices().then(devices => {
-        setAvailableAudioOutputs(devices);
-        if (devices.length > 0 && !selectedPlaybackDevice) {
-          setSelectedPlaybackDevice(devices[0].label || 'Default');
-        }
-      });
-    }
-  }, [audioSetupMenuAnchor]);
 
   // Wheel-to-zoom: Cmd/Ctrl + scroll zooms toward cursor (like piano roll)
   const ppsRef = React.useRef(pixelsPerSecond);
