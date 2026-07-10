@@ -31,11 +31,61 @@ describe('deriveEnvelopePointSizes', () => {
   });
 
   it('defaults showWhiteOutlineOnHover, showBlackOutlineOnHover, showBlackCenterOnHover to false when the profile omits them', () => {
-    const styleKey = styleKeys[0];
-    const result = deriveEnvelopePointSizes(styleKey);
+    // Select by property, not position: any style whose raw profile leaves
+    // these hover flags unset. Fails loudly (not silently on an empty
+    // array) if every profile ever starts setting them explicitly.
+    const styleKey = styleKeys.find((key) => {
+      const profile = ENVELOPE_POINT_STYLES[key];
+      return (
+        profile.showWhiteOutlineOnHover === undefined &&
+        profile.showBlackOutlineOnHover === undefined &&
+        profile.showBlackCenterOnHover === undefined
+      );
+    });
+    expect(styleKey).toBeDefined();
+
+    const result = deriveEnvelopePointSizes(styleKey!);
 
     expect(result.showWhiteOutlineOnHover).toBe(false);
     expect(result.showBlackOutlineOnHover).toBe(false);
     expect(result.showBlackCenterOnHover).toBe(false);
+  });
+
+  it('projects the literal solidGreenSimple profile fields (locks the real style values, not just the field list)', () => {
+    const result = deriveEnvelopePointSizes('solidGreenSimple');
+
+    expect(result).toEqual({
+      outerRadius: 5,
+      innerRadius: 0,
+      outerRadiusHover: 6,
+      innerRadiusHover: 0,
+      lineWidth: 2,
+      dualRingHover: undefined,
+      solidCircle: {
+        fillColor: '#b8ff00',
+        strokeColor: '#b8ff00',
+        strokeWidth: 0,
+        radius: 4.5,
+        radiusHover: 5.5,
+        cursorFollowerRadius: 3.5,
+        useDualRingCursorFollower: false,
+        breakLineAtCursor: false,
+        whiteCenterOnHover: {
+          innerRadius: 0,
+          outerRadius: 1.5,
+          blackRadius: 3.5,
+        },
+      },
+      hoverRingColor: undefined,
+      hoverRingStrokeColor: undefined,
+      showWhiteOutlineOnHover: false,
+      showBlackOutlineOnHover: false,
+      showBlackCenterOnHover: false,
+      showGreenCenterFillOnHover: undefined,
+      whiteCenterOnHover: undefined,
+      whiteCenter: undefined,
+      dualStrokeLine: undefined,
+      lineColor: undefined,
+    });
   });
 });
