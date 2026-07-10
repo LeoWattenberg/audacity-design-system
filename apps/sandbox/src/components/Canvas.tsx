@@ -13,6 +13,7 @@ import { useClipMouseDown } from '../hooks/useClipMouseDown';
 import { useContainerClick } from '../hooks/useContainerClick';
 import { useMarqueeSelection } from '../hooks/useMarqueeSelection';
 import { useSplitTool } from '../hooks/useSplitTool';
+import { useCmdArrowMove } from '../hooks/useCmdArrowMove';
 import { resolveOverlap, type ClipPlacement } from '../utils/resolveOverlap';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
@@ -256,11 +257,12 @@ export function Canvas({
   // Track if we just selected a clip on mouse down to prevent immediate deselection on click
   const justSelectedOnMouseDownRef = useRef(false);
 
-  // Parallel state flag that mirrors the module-scoped
-  // pendingClipMoveResolution ref, so React can lift the moving
-  // clip's z-index while the Cmd hold is in progress. State
-  // triggers re-render; a ref alone can't.
-  const [isCmdArrowMoving, setIsCmdArrowMoving] = useState(false);
+  // Cmd/Ctrl-release overlap resolution for Cmd+Arrow clip moves — see
+  // useCmdArrowMove for the ref-mirror + keyup listener details.
+  // isCmdArrowMoving mirrors the module-scoped pendingClipMoveResolution
+  // ref so React can lift the moving clip's z-index while the Cmd hold
+  // is in progress; beginCmdMove flips it on at the call sites below.
+  const { isCmdArrowMoving, beginCmdMove } = useCmdArrowMove({ tracks });
 
   // Snap options for grid snapping
   const snapOptions: SnapOptions | undefined = snapEnabled ? {
@@ -477,46 +479,6 @@ export function Canvas({
   useEffect(() => {
     onHeightChange?.(totalHeight);
   }, [totalHeight, onHeightChange]);
-
-  // Cmd/Ctrl release → apply the deferred overlap resolution from any
-  // Cmd+Arrow clip moves. We build the intent from the *current* clip
-  // positions (post-nudge) so only the final resting places are
-  // reconciled with underlying clips — nothing in between gets eaten.
-  useEffect(() => {
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== 'Meta' && e.key !== 'Control') return;
-      if (!pendingClipMoveResolution.current) return;
-      pendingClipMoveResolution.current = false;
-      setIsCmdArrowMoving(false);
-
-      const intent: ClipPlacement[] = [];
-      const movingIds = new Set<number>();
-      tracks.forEach((t, tIndex) => {
-        t.clips.forEach((c) => {
-          if (c.selected) {
-            intent.push({
-              clipId: c.id,
-              trackIndex: tIndex,
-              start: c.start,
-              duration: c.duration,
-            });
-            movingIds.add(c.id);
-          }
-        });
-      });
-      if (intent.length === 0) return;
-
-      const resolution = resolveOverlap(tracks, intent, movingIds);
-      if (resolution.mutations.length > 0) {
-        dispatch({
-          type: 'APPLY_CLIP_PLACEMENT',
-          payload: { placements: [], mutations: resolution.mutations },
-        });
-      }
-    };
-    document.addEventListener('keyup', onKeyUp);
-    return () => document.removeEventListener('keyup', onKeyUp);
-  }, [tracks, dispatch]);
 
   // Check if any track has spectrogram or split view enabled
   const hasSpectralView = spectrogramMode || tracks.some(track =>
@@ -1244,7 +1206,7 @@ export function Canvas({
                     // Defer overlap resolution until Cmd/Ctrl release
                     // — matches the horizontal clip-nudge flow.
                     pendingClipMoveResolution.current = true;
-                    setIsCmdArrowMoving(true);
+                    beginCmdMove();
                     return;
                   }
 
@@ -1359,7 +1321,7 @@ export function Canvas({
                   // several clips would leave a trail of eaten
                   // neighbors between the start and end position.
                   pendingClipMoveResolution.current = true;
-                  setIsCmdArrowMoving(true);
+                  beginCmdMove();
 
                   // Scroll focused clip into view
                   requestAnimationFrame(() => {
@@ -1386,7 +1348,7 @@ export function Canvas({
                   // Defer overlap resolution to Cmd/Ctrl release — see
                   // onClipMove above for the same rationale.
                   pendingClipMoveResolution.current = true;
-                  setIsCmdArrowMoving(true);
+                  beginCmdMove();
                   // Follow the focused clip with the track-focus state.
                   // The MOVE_SELECTED_CLIPS_TO_TRACK reducer remaps the
                   // selected-tracks set but leaves focusedTrackIndex
