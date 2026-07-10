@@ -5,7 +5,7 @@ import type { AccessibilityProfile } from '@audacity-ui/core';
 import { useTracks } from '../contexts/TracksContext';
 import type { Label } from '../contexts/TracksContext';
 import type { AudioEngineContextValue } from '../contexts/AudioEngineContext';
-import type { CloudAudioFile } from '../App';
+import type { CloudAudioFile } from '../utils/cloudProjects';
 import { DebugPanel } from './DebugPanel';
 import { MissingPluginsModal } from './MissingPluginsModal';
 import { generateWaveform } from '../utils/waveformGenerator';

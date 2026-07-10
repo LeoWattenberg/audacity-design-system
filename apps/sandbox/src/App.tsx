@@ -3,30 +3,15 @@ import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
 import { ApplicationHeader, ProjectToolbar, ToastContainer, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useAppearancePrefs, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem, Dialog, Button, Footer, ProgressBar, MasterMeterVertical, type StoredProject } from '@dilsonspickles/components';
 import {
-  getProject as adieuGetProject,
   deleteProject as adieuDeleteProject,
-  assetUrl as adieuAssetUrl,
   ADIEU_BASE,
-  type AdieuProjectSummary,
 } from './lib/adieu-client';
-import { decodeBufferMap } from './lib/binary';
 import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
 import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
 // import { TimeSelectionContextMenu } from './components/TimeSelectionContextMenu';
 import { useTracks } from './contexts/TracksContext';
 import type { Track } from './contexts/TracksContext';
-
-/** Shape of a cloud audio file entry as stored in localStorage and passed to dialogs. */
-export interface CloudAudioFile {
-  id: string;
-  title: string;
-  dateText: string;
-  duration: string;
-  size: string;
-  blobUrl: string;
-  waveformData: number[];
-}
 import { useSpectralSelection } from './contexts/SpectralSelectionContext';
 import { AudioEngineProvider, useAudioEngine } from './contexts/AudioEngineContext';
 import { AppContextMenus } from './components/AppContextMenus';
@@ -76,59 +61,9 @@ import { useProjectAutoSave } from './hooks/useProjectAutoSave';
 import { useCloudProjectCleanup } from './hooks/useCloudProjectCleanup';
 import { PlaybackProvider } from './contexts/PlaybackContext';
 import { LoopRegionProvider } from './contexts/LoopRegionContext';
+import { loadCloudProjectAsStored, cloudSummaryToStored, type CloudAudioFile } from './utils/cloudProjects';
 
 const MIN_ZOOM = 10; // Minimum pixels per second (matches useZoomControls)
-
-// Fetch a cloud project and shape it like an IndexedDB project so the
-// existing onOpenProject hydration code can consume it unchanged.
-async function loadCloudProjectAsStored(
-  id: string,
-): Promise<StoredProject | null> {
-  try {
-    const project = await adieuGetProject(id);
-    const ts = Date.parse(project.updatedAt) || Date.now();
-    // Cloud payload encodes audioBuffers as base64 strings; decode to
-    // ArrayBuffers so downstream code (audioManager.importBuffersFromWav)
-    // sees the same shape it gets from IndexedDB.
-    const rawData = project.data as {
-      tracks?: unknown[];
-      masterEffects?: unknown[];
-      playheadPosition?: number;
-      audioBuffers?: Record<string, string | ArrayBuffer>;
-    } | null;
-    const data = rawData
-      ? {
-          ...rawData,
-          audioBuffers: decodeBufferMap(rawData.audioBuffers),
-        }
-      : null;
-    return {
-      id: project.id,
-      title: project.title,
-      dateCreated: ts,
-      dateModified: ts,
-      thumbnailUrl: project.thumbnailUrl
-        ? adieuAssetUrl(project.thumbnailUrl)
-        : undefined,
-      isCloudProject: true,
-      data,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function cloudSummaryToStored(p: AdieuProjectSummary): StoredProject {
-  const ts = Date.parse(p.updatedAt) || Date.now();
-  return {
-    id: p.id,
-    title: p.title,
-    dateCreated: ts,
-    dateModified: ts,
-    thumbnailUrl: p.thumbnailUrl ? adieuAssetUrl(p.thumbnailUrl) : undefined,
-    isCloudProject: true,
-  };
-}
 
 type Workspace = 'classic' | 'spectral-editing' | 'modern' | 'music';
 
