@@ -585,8 +585,6 @@ function CanvasDemoContent() {
     loopRegionEnabled, setLoopRegionEnabled,
     loopRegionStart, setLoopRegionStart,
     loopRegionEnd, setLoopRegionEnd,
-    loopRegionInteracting, setLoopRegionInteracting,
-    loopRegionHovering, setLoopRegionHovering,
     toggleLoopRegion,
   } = loopRegion;
 
@@ -1487,16 +1485,6 @@ function CanvasDemoContent() {
           setMouseCursorY={setMouseCursorY}
           isOverTrack={isOverTrack}
           setIsOverTrack={setIsOverTrack}
-          loopRegionEnabled={loopRegionEnabled}
-          setLoopRegionEnabled={setLoopRegionEnabled}
-          loopRegionStart={loopRegionStart}
-          setLoopRegionStart={setLoopRegionStart}
-          loopRegionEnd={loopRegionEnd}
-          setLoopRegionEnd={setLoopRegionEnd}
-          loopRegionInteracting={loopRegionInteracting}
-          setLoopRegionInteracting={setLoopRegionInteracting}
-          loopRegionHovering={loopRegionHovering}
-          setLoopRegionHovering={setLoopRegionHovering}
           rulerTimeSelection={rulerTimeSelection}
           spectralSelection={spectralSelection}
           theme={baseTheme}

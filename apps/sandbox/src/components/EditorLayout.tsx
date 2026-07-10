@@ -23,6 +23,7 @@ import { useDrawerTabAutoSwitch } from '../hooks/useDrawerTabAutoSwitch';
 import { useTimeSelectionTabHandler } from '../hooks/useTimeSelectionTabHandler';
 import { useFlatNavTabRouter } from '../hooks/useFlatNavTabRouter';
 import { usePlayback } from '../contexts/PlaybackContext';
+import { useLoopRegionContext } from '../contexts/LoopRegionContext';
 import { computeWholeGroupIds, regroupCopiedClips } from '../utils/clipGroupCopy';
 
 export interface EditorLayoutProps {
@@ -81,18 +82,6 @@ export interface EditorLayoutProps {
   setMouseCursorY: React.Dispatch<React.SetStateAction<number | undefined>>;
   isOverTrack: boolean;
   setIsOverTrack: React.Dispatch<React.SetStateAction<boolean>>;
-
-  // Loop region
-  loopRegionEnabled: boolean;
-  setLoopRegionEnabled: React.Dispatch<React.SetStateAction<boolean>>;
-  loopRegionStart: number | null;
-  setLoopRegionStart: React.Dispatch<React.SetStateAction<number | null>>;
-  loopRegionEnd: number | null;
-  setLoopRegionEnd: React.Dispatch<React.SetStateAction<number | null>>;
-  loopRegionInteracting: boolean;
-  setLoopRegionInteracting: React.Dispatch<React.SetStateAction<boolean>>;
-  loopRegionHovering: boolean;
-  setLoopRegionHovering: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Ruler time selection
   rulerTimeSelection: { startTime: number; endTime: number } | null | undefined;
@@ -156,13 +145,16 @@ export function EditorLayout(props: EditorLayoutProps) {
     selectionAnchor, setSelectionAnchor, controlPanelHasFocus: _controlPanelHasFocus, setControlPanelHasFocus,
     containerFocusedTrack, setContainerFocusedTrack,
     mouseCursorPosition, setMouseCursorPosition, mouseCursorY, setMouseCursorY, isOverTrack, setIsOverTrack,
-    loopRegionEnabled, setLoopRegionEnabled, loopRegionStart, setLoopRegionStart, loopRegionEnd, setLoopRegionEnd,
-    loopRegionInteracting, setLoopRegionInteracting, loopRegionHovering, setLoopRegionHovering,
     rulerTimeSelection, spectralSelection,
     theme, canvasHeight, setCanvasHeight,
     clickRulerToStartPlayback, punchPointPosition, snapEnabled, isFlatNavigation: _isFlatNavigation,
     showMixer,
   } = props;
+
+  const {
+    loopRegionEnabled, setLoopRegionEnabled, loopRegionStart, setLoopRegionStart, loopRegionEnd, setLoopRegionEnd,
+    loopRegionInteracting, setLoopRegionInteracting, loopRegionHovering, setLoopRegionHovering,
+  } = useLoopRegionContext();
 
   const { audioManagerRef } = usePlayback();
   const { preferences } = usePreferences();
