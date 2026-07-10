@@ -11,6 +11,9 @@ import { GeneralPage } from '../pages/GeneralPage';
 import { AppearancePage } from '../pages/AppearancePage';
 import { PluginsPage } from '../pages/PluginsPage';
 import { CloudPage } from '../pages/CloudPage';
+import { AudioSettingsPage } from '../pages/AudioSettingsPage';
+import { PlaybackRecordingPage } from '../pages/PlaybackRecordingPage';
+import { SpectralDisplayPage } from '../pages/SpectralDisplayPage';
 
 afterEach(cleanup);
 
@@ -84,6 +87,33 @@ describe('preferences pages render', () => {
     const { container } = render(
       <Providers>
         <CloudPage />
+      </Providers>
+    );
+    expect(container.querySelector('.preferences-page')).toBeTruthy();
+  });
+
+  it('AudioSettingsPage renders', () => {
+    const { container } = render(
+      <Providers>
+        <AudioSettingsPage />
+      </Providers>
+    );
+    expect(container.querySelector('.preferences-page')).toBeTruthy();
+  });
+
+  it('PlaybackRecordingPage renders', () => {
+    const { container } = render(
+      <Providers>
+        <PlaybackRecordingPage />
+      </Providers>
+    );
+    expect(container.querySelector('.preferences-page')).toBeTruthy();
+  });
+
+  it('SpectralDisplayPage renders', () => {
+    const { container } = render(
+      <Providers>
+        <SpectralDisplayPage />
       </Providers>
     );
     expect(container.querySelector('.preferences-page')).toBeTruthy();
