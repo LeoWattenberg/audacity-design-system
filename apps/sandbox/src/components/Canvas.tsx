@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { TrackNew, useAudioSelection, SpectralSelectionOverlay, CLIP_CONTENT_OFFSET, useAccessibilityProfile, useTabOrder, useTheme, scrollIntoViewIfNeeded, announce, formatTimeForA11y } from '@dilsonspickles/components';
+import { TrackNew, useAudioSelection, SpectralSelectionOverlay, CLIP_CONTENT_OFFSET, useAccessibilityProfile, useTabOrder, useTheme, scrollIntoViewIfNeeded, announce } from '@dilsonspickles/components';
 import type { SpectrogramScale } from '@dilsonspickles/components';
-import { ENVELOPE_POINT_STYLES, type EnvelopePointStyleKey, type SnapGrid, type MidiClip } from '@audacity-ui/core';
+import { ENVELOPE_POINT_STYLES, type EnvelopePointStyleKey, type SnapGrid } from '@audacity-ui/core';
 import { useTracksState, useTracksDispatch, type Clip } from '../contexts/TracksContext';
 import { useSpectralSelection } from '../contexts/SpectralSelectionContext';
 import { useEditingBehaviorPrefs, useAppearancePrefs } from '@dilsonspickles/components';
@@ -14,7 +14,13 @@ import { useContainerClick } from '../hooks/useContainerClick';
 import { useMarqueeSelection } from '../hooks/useMarqueeSelection';
 import { useSplitTool } from '../hooks/useSplitTool';
 import { useCmdArrowMove } from '../hooks/useCmdArrowMove';
-import { resolveOverlap, type ClipPlacement } from '../utils/resolveOverlap';
+import {
+  computeKeyboardTrimBatch,
+  computeKeyboardTrimAnnouncement,
+  computeKeyboardStretch,
+  computeKeyboardStretchAnnouncement,
+  type KeyboardTrimTarget,
+} from '../utils/clipKeyboardEdit';
 import { pendingClipMoveResolution } from '../utils/pendingClipMoveResolution';
 import { resolveTimeSelectionScope } from '../utils/timeSelectionScope';
 import { playheadAfterSelectionFinalize } from '../utils/playheadAfterFinalize';
@@ -1429,7 +1435,7 @@ export function Canvas({
                   // still trim that one. The same canvas-time delta is
                   // applied to each clip independently, with per-clip
                   // bounds checks against its own source duration.
-                  const targets: Array<{ trackIndex: number; clip: Clip | MidiClip }> = [];
+                  const targets: KeyboardTrimTarget[] = [];
                   tracks.forEach((t, tIndex) => {
                     t.clips.forEach((c) => {
                       if (c.selected || (tIndex === trackIndex && c.id === clipId)) {
@@ -1452,109 +1458,34 @@ export function Canvas({
                     return true;
                   });
 
-                  // Track each moving clip's final position so we can
-                  // build an overlap-resolution intent after the trims
-                  // are dispatched. This mirrors the mouse-trim path:
-                  // once the trim moves an edge into a neighbor, the
-                  // neighbor gets non-destructively eaten (trim / split
-                  // / delete) the same way it does on drop.
-                  const trimIntent: ClipPlacement[] = [];
-                  const movingIds = new Set<number>();
+                  // Per-clip trim math + overlap resolution (eating any
+                  // neighbor the trim pushed into) is pure — computed in
+                  // clipKeyboardEdit.ts and unit-tested there. This mirrors
+                  // the mouse-trim path: once a trim moves an edge into a
+                  // neighbor, the neighbor gets non-destructively eaten
+                  // (trim / split / delete) the same way it does on drop.
+                  const { updates, mutations } = computeKeyboardTrimBatch(uniqueTargets, edge, deltaSeconds, tracks);
 
-                  for (const { trackIndex: ti, clip } of uniqueTargets) {
-                    const stretch = (clip as any).stretchFactor ?? 1; // justified: stretchFactor not on Clip/MidiClip type
-                    const currentTrimStart = (clip as Clip).trimStart || 0;
-                    const currentDuration = clip.duration;
-                    const currentStart = clip.start;
-                    const fullDuration =
-                      (clip as Clip).fullDuration || (currentTrimStart + currentDuration / stretch);
-                    const currentMaxDuration = (fullDuration - currentTrimStart) * stretch;
-                    const isAtMaxDuration = Math.abs(currentDuration - currentMaxDuration) < 0.001;
-
-                    let newTrimStart = currentTrimStart;
-                    let newDuration = currentDuration;
-                    let newStart = currentStart;
-                    // Cap the delta up front to what's actually
-                    // available on the affected side. This prevents
-                    // the classic "overshoot" bug where newTrimStart
-                    // clamps to 0 but newDuration still reflects the
-                    // uncapped delta, leaving the clip showing empty
-                    // source at the edge.
-                    let effectiveDelta = deltaSeconds;
-
-                    if (edge === 'left') {
-                      if (deltaSeconds < 0) {
-                        // Extending left — can't reveal more than the
-                        // source already hides on that side.
-                        const availableCanvas = currentTrimStart * stretch;
-                        effectiveDelta = Math.max(deltaSeconds, -availableCanvas);
-                        if (availableCanvas <= 0.0005) continue;
-                      } else {
-                        // Shrinking left — can't cross the right edge.
-                        const maxShrink = Math.max(0, currentDuration - 0.1);
-                        effectiveDelta = Math.min(deltaSeconds, maxShrink);
-                      }
-                      newTrimStart = currentTrimStart + effectiveDelta / stretch;
-                      newDuration = Math.max(0.1, currentDuration - effectiveDelta);
-                      newStart = currentStart + effectiveDelta;
-                    } else {
-                      if (deltaSeconds < 0) {
-                        // Extending right — cap to available tail.
-                        const availableCanvas = (fullDuration - currentTrimStart) * stretch - currentDuration;
-                        effectiveDelta = Math.max(deltaSeconds, -availableCanvas);
-                        if (availableCanvas <= 0.0005 || isAtMaxDuration) continue;
-                      } else {
-                        // Shrinking right — can't cross the left edge.
-                        const maxShrink = Math.max(0, currentDuration - 0.1);
-                        effectiveDelta = Math.min(deltaSeconds, maxShrink);
-                      }
-                      newDuration = Math.max(0.1, currentDuration - effectiveDelta);
-                    }
-
-                    newTrimStart = Math.max(0, newTrimStart);
-                    // Skip the dispatch when nothing actually changed
-                    // (e.g. a delta so small it round-tripped to zero).
-                    if (
-                      Math.abs(newTrimStart - currentTrimStart) < 0.0005
-                      && Math.abs(newDuration - currentDuration) < 0.0005
-                      && Math.abs(newStart - currentStart) < 0.0005
-                    ) {
-                      continue;
-                    }
+                  for (const update of updates) {
                     dispatch({
                       type: 'TRIM_CLIP',
                       payload: {
-                        trackIndex: ti,
-                        clipId: clip.id as number,
-                        newTrimStart,
-                        newDuration,
-                        newStart: edge === 'left' ? newStart : undefined,
+                        trackIndex: update.trackIndex,
+                        clipId: update.clipId,
+                        newTrimStart: update.newTrimStart,
+                        newDuration: update.newDuration,
+                        newStart: update.newStart,
                       },
                     });
+                  }
 
-                    // Record the final position for the overlap pass.
-                    trimIntent.push({
-                      clipId: clip.id as number,
-                      trackIndex: ti,
-                      start: edge === 'left' ? newStart : currentStart,
-                      duration: newDuration,
+                  if (mutations.length > 0) {
+                    dispatch({
+                      type: 'APPLY_CLIP_PLACEMENT',
+                      payload: { placements: [], mutations },
                     });
-                    movingIds.add(clip.id as number);
                   }
 
-                  // Second pass: eat any neighboring clips the trim
-                  // pushed into. resolveOverlap uses the current
-                  // tracks (with untouched underlying positions) and
-                  // the moving clips' new positions from trimIntent.
-                  if (trimIntent.length > 0) {
-                    const resolution = resolveOverlap(tracks, trimIntent, movingIds);
-                    if (resolution.mutations.length > 0) {
-                      dispatch({
-                        type: 'APPLY_CLIP_PLACEMENT',
-                        payload: { placements: [], mutations: resolution.mutations },
-                      });
-                    }
-                  }
                   // Screen-reader announcement of the resulting duration.
                   // The focused clip's aria-label updates with the new
                   // duration on re-render but VoiceOver doesn't re-read
@@ -1565,11 +1496,7 @@ export function Canvas({
                     (t) => t.trackIndex === trackIndex && t.clip.id === clipId,
                   ) ?? uniqueTargets[0];
                   if (focused) {
-                    const finalDuration = Math.max(
-                      0.1,
-                      focused.clip.duration - deltaSeconds,
-                    );
-                    announce(`Clip is now ${formatTimeForA11y(finalDuration)} long`);
+                    announce(computeKeyboardTrimAnnouncement(focused.clip, deltaSeconds));
                   }
                 }}
                 onClipStretch={(clipId, edge, deltaSeconds) => {
@@ -1578,7 +1505,7 @@ export function Canvas({
                   // from `edge`, negative grows it.
                   // Applied to every selected clip; if the originating
                   // clip isn't currently selected we still stretch it.
-                  const targets: Array<{ trackIndex: number; clip: Clip | MidiClip }> = [];
+                  const targets: KeyboardTrimTarget[] = [];
                   tracks.forEach((t, tIndex) => {
                     t.clips.forEach((c) => {
                       if (c.selected || (tIndex === trackIndex && c.id === clipId)) {
@@ -1599,25 +1526,21 @@ export function Canvas({
                     return true;
                   });
 
+                  // Time-stretch is audio-only — stretchFactor never
+                  // applies to MidiClip (the STRETCH_CLIP reducer only
+                  // touches track.clips). MidiClip targets are skipped.
                   for (const { trackIndex: ti, clip } of uniqueTargets) {
-                    const currentDuration = clip.duration;
-                    const currentStart = clip.start;
-                    const currentStretch = (clip as any).stretchFactor ?? 1; // justified: stretchFactor not on Clip/MidiClip type
-                    const newDuration = Math.max(0.1, currentDuration - deltaSeconds);
-                    const ratio = newDuration / currentDuration;
-                    const newStretchFactor = Math.max(
-                      0.1,
-                      Math.min(10, currentStretch * ratio),
-                    );
-                    if (newStretchFactor === currentStretch) continue;
+                    if ('notes' in clip) continue; // MidiClip — stretch doesn't apply
+                    const result = computeKeyboardStretch({ clip, edge, deltaSeconds });
+                    if (!result) continue;
                     dispatch({
                       type: 'STRETCH_CLIP',
                       payload: {
                         trackIndex: ti,
-                        clipId: clip.id as number,
-                        newDuration,
-                        newStretchFactor,
-                        newStart: edge === 'left' ? currentStart + deltaSeconds : undefined,
+                        clipId: clip.id,
+                        newDuration: result.newDuration,
+                        newStretchFactor: result.newStretchFactor,
+                        newStart: result.newStart,
                       },
                     });
                   }
@@ -1628,11 +1551,7 @@ export function Canvas({
                     (t) => t.trackIndex === trackIndex && t.clip.id === clipId,
                   ) ?? uniqueTargets[0];
                   if (focused) {
-                    const finalDuration = Math.max(
-                      0.1,
-                      focused.clip.duration - deltaSeconds,
-                    );
-                    announce(`Clip stretched to ${formatTimeForA11y(finalDuration)}`);
+                    announce(computeKeyboardStretchAnnouncement(focused.clip, deltaSeconds));
                   }
                 }}
                 onEnvelopePointsChange={(clipId, points) => {
