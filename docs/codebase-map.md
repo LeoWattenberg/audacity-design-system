@@ -37,8 +37,9 @@ For background on any section, follow the deep-dive doc links at the bottom.
 | `SpectralSelectionContext.tsx` | Spectral selection read/write — 6 properties |
 | `AudioEngineContext.tsx` | Audio engine service (refs + methods, no React state) |
 | `PlaybackContext.tsx` | Value-provider for playback (`usePlayback()`): App calls `usePlaybackControls` and provides its return — consumers read `audioManagerRef`/`isPlaying`/etc. from context instead of drilled props |
+| `LoopRegionContext.tsx` | Value-provider for loop-region drag/resize (`useLoopRegionContext()`): App calls `useLoopRegion` (needs App-local `timeSelection`/`bpm`/`beatsPerMeasure`) and provides its return, same pattern as `PlaybackContext` |
 
-User preferences state is the exception — it lives in the components package, not here: `packages/components/src/contexts/PreferencesContext.tsx` (consumed app-wide via `usePreferences`; not yet decomposed into domain-specific contexts — see known debt).
+User preferences state is the exception — it lives in the components package, not here: `packages/components/src/contexts/PreferencesContext.tsx` (consumed app-wide via `usePreferences`). It's now split into domain-slice hooks over the same provider — `useGeneralPrefs()`, `useAppearancePrefs()`, `useEditingBehaviorPrefs()` — so consumers that only need one slice don't re-render on unrelated preference changes; `usePreferences()` still returns the full value for existing callers.
 
 ### Tracks reducer — domain split (`apps/sandbox/src/contexts/reducers/`)
 
@@ -75,6 +76,11 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 | `useLoopRegion.ts` | Loop region drag and resize |
 | `useLabelDragging.ts` | Label drag interactions |
 | `useSplitTool.ts` | Split-mode click-to-split tool — state, Shift-sync + hover effects, and the split mouse-handler branches (extracted from Canvas; wired back into Canvas's guard chain in order) |
+| `useCanvasPointerHandlers.ts` | Canvas's nine mouse handlers (mousedown/move/up/contextmenu across clips, labels, marquee, split) — extracted verbatim from Canvas |
+| `useDragHighlightIds.ts` | Derives `draggingClipIds` (mouse-drag ghosting) / `raisedClipIds` (Cmd+Arrow z-index lift) that Canvas uses to highlight clips mid-drag |
+| `useTrackKeyboardHandlers.ts` | Track-level vertical navigation + selection keyboard handling |
+| `useCmdArrowMove.ts` | Cmd/Ctrl-release overlap resolution for Cmd+Arrow clip moves — listens for keyup, reconciles final clip positions against neighbors |
+| `useDraggableToolbar.ts` | Transport toolbar gripper-drag: floating position + top/bottom dock snapping |
 | `useKeyboardShortcuts.ts` | **Keyboard routing hub** — delegates to domain handlers below |
 
 **EditorLayout effect hooks** (extracted from EditorLayout; each a self-contained `useEffect`):
@@ -88,7 +94,18 @@ Behavior is locked by `__tests__/tracksReducer.characterization.test.ts` and `__
 
 **App effect/state hooks** (extracted from App.tsx): `useFocusDebugger`, `useMixerPanelListener`, `useTimeCodeFormats`, `useLocalStorageBackedState<T>`, `useInitialTrackSelection`, `useProjectAutoSave`, `useCloudProjectCleanup` — each a self-contained state/effect cluster. Big handler flows (side-effectful — DOM/network/toasts/IndexedDB; take explicit deps objects) live in `utils/`: `generateTone.ts`, `importAudio.ts`, `saveCloudProject.ts`.
 
-Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/utils/canvasGeometry.ts` (`resolveTrackIndexFromY`, `buildSplitForTrack`).
+**App.tsx orchestration hooks** (later extraction pass — the cloud-load flow, menu wiring, and scroll/zoom sync that used to be inline in App.tsx):
+| File | What it owns |
+|---|---|
+| `useProjectLifecycle.ts` | New/open/close/delete project flow, including cloud-project loading and the missing-plugins scan on open |
+| `useMenuDefinitions.ts` | Builds the in-app menu definition tree (File/Edit/View/etc.) from current app state and callbacks |
+| `useElectronMenuBridge.ts` | Routes native Electron menu clicks to the same handlers the in-app menu uses, by label lookup; desktop-only |
+| `useCanvasScrollSync.ts` | Wheel-zoom and two-pane (canvas + track-header) scroll sync |
+| `useMasterMeter.ts` | Master output meter + master volume, reading the audio engine's dedicated master `Tone.Meter` |
+| `useAudioDeviceMenu.ts` | "Audio setup" menu anchor + selected recording/playback device + available `MediaDeviceInfo` lists |
+| `usePlugins.ts` | Plugin list state, syncing installed/disabled effects, missing-plugin detection on project load |
+
+Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/utils/canvasGeometry.ts` (`resolveTrackIndexFromY`, `buildSplitForTrack`). Other extracted `utils/`: `canvasLayout.ts` (Canvas layout math), `snapGuideline.ts` (snap-guideline time calculation for trim/stretch), `clipKeyboardEdit.ts` (keyboard trim/stretch batch + announcement text, used by `CanvasTrackList`), `envelopePointSizes.ts` (projects an `EnvelopePointStyle` profile down to the size fields Canvas needs), `findMissingEffects.ts` (scans a project for effects the user doesn't have installed), `cloudProjects.ts` (loads a cloud project into the `StoredProject` shape). `packages/components/src/ClipBody/waveformGeometry.ts` holds the equivalent pure waveform-pixel-geometry helpers for `ClipBody`.
 
 ### Keyboard handlers (`apps/sandbox/src/hooks/handlers/`)
 
@@ -113,9 +130,16 @@ Pure geometry helpers used by Canvas + the split tool live in `apps/sandbox/src/
 | File | What it owns |
 |---|---|
 | `packages/components/src/Track/TrackNew.tsx` | Component-based track renderer — lays out clips, positions EnvelopeInteractionLayer overlays |
-| `packages/components/src/ClipBody/ClipBody.tsx` | Canvas-based clip body — waveform, spectrogram, and envelope fill drawing |
+| `packages/components/src/ClipBody/ClipBody.tsx` | Canvas-based clip body — waveform, spectrogram, and envelope fill drawing. Pure pixel-geometry math split into `packages/components/src/ClipBody/waveformGeometry.ts` |
 | `apps/sandbox/src/components/GridOverlay.tsx` | Beat/measure grid SVG overlay (extracted from Canvas); exports pure `computeGrid` |
-| `apps/sandbox/src/components/Canvas.tsx` | Main rendering coordinator — manages track layout, time/spectral selection, coordinates TrackNew components and label rendering (see also: known debt below) |
+| `apps/sandbox/src/components/Canvas.tsx` | Main rendering coordinator — manages track layout, time/spectral selection, coordinates `CanvasTrackList` and overlay rendering (see also: known debt below) |
+| `apps/sandbox/src/components/canvas/CanvasTrackList.tsx` | Owns the per-track render loop — maps `tracks` to `TrackNew` + `LabelRenderer`, wiring clip/label/envelope props and ~10 tracks-reducer dispatch types directly (deliberate: mirrors how Canvas.tsx did it pre-refactor, not a new coupling). Extracted verbatim from Canvas.tsx; see also: known debt below |
+| `apps/sandbox/src/components/canvas/MarqueeRect.tsx` | Right-drag marquee-selection rectangle overlay |
+| `apps/sandbox/src/components/canvas/SnapGuideline.tsx` | 1px vertical guideline shown at the snap target during trim/stretch |
+| `apps/sandbox/src/components/canvas/SplitPreviewLine.tsx` | Split-tool hover preview line (single track, or all tracks with Shift held) |
+| `apps/sandbox/src/components/ProjectToolbarContainer.tsx` | Wires `ProjectToolbar` — project menu (home/project/export/debug), mixer/audio-setup/marketplace triggers |
+| `apps/sandbox/src/components/TransportToolbarContainer.tsx` | Wires `TransportToolbar` — playback/mode toggles, zoom, snap, timecode, master meter, toolbar-gripper drag |
+| `packages/components/src/PreferencesModal/PreferencesModal.tsx` | 210-line scaffold — tab list + active-page routing — delegating to 10 page components in `PreferencesModal/pages/` (`GeneralPage`, `AppearancePage`, `AudioSettingsPage`, `PlaybackRecordingPage`, `SpectralDisplayPage`, `EditingPage`, `PluginsPage`, `CloudPage`, `ShortcutsPage`, `PlaceholderPage`) plus shared `TabGroupField.tsx`, `types.ts`, `menuItems.ts` |
 
 ---
 
@@ -131,10 +155,10 @@ These are not-yet-decomposed monoliths. They work but are prime targets for futu
 
 | File | What it owns |
 |---|---|
-| `apps/sandbox/src/App.tsx` | Application root — provider tree, routing, and remaining orchestration (cloud-load flow, menu wiring, wheel-zoom/scroll sync). Phase-1 hooks/utils + PlaybackContext extracted; remaining bulk is struct-1b/struct-2 scope |
+| `apps/sandbox/src/App.tsx` (1244 lines) | Application root — provider tree, routing, and remaining orchestration. The cloud-load flow, menu wiring, and wheel-zoom/scroll sync that used to be inline here are now extracted (`useProjectLifecycle`, `useMenuDefinitions` + `useElectronMenuBridge`, `useCanvasScrollSync` — see "App.tsx orchestration hooks" above), along with `PlaybackContext`, `LoopRegionContext`, `useMasterMeter`, `useAudioDeviceMenu`, `usePlugins`, and the toolbar prop-wiring in `ProjectToolbarContainer`/`TransportToolbarContainer`. Remaining bulk is provider-tree assembly and the local state that still fans out to those extracted pieces |
 | `apps/sandbox/src/components/EditorLayout.tsx` | Full editor chrome (toolbar, track panel, ruler, transport, drawer). Consumes `TracksContext` directly via `useTracks()` (typed — no `state`/`dispatch` prop-drill); self-contained effects extracted to hooks. Remaining bulk is layout JSX / prop-drilling to already-extracted child components — reducing it needs a selection/focus context (separate project) |
-| `apps/sandbox/src/components/Canvas.tsx` | Track/clip/label interaction dispatcher (renders no `<canvas>`). Grid → `GridOverlay`, split tool → `useSplitTool`, geometry → `utils/canvasGeometry` are now extracted; the remaining bulk is the ~935-line track-map loop wiring props to TrackNew (needs a Context-slicing change to reduce) |
-| `packages/components/src/PreferencesModal/PreferencesModal.tsx` | Preferences UI; all preference panels in one file |
+| `apps/sandbox/src/components/Canvas.tsx` (771 lines) | Track/clip/label interaction dispatcher (renders no `<canvas>`). Grid → `GridOverlay`, split tool → `useSplitTool`, geometry → `utils/canvasGeometry`, pointer handlers → `useCanvasPointerHandlers`, track-nav keyboard → `useTrackKeyboardHandlers`, and the per-track render loop → `components/canvas/CanvasTrackList.tsx` are now extracted. Remaining bulk is state wiring across those pieces |
+| `apps/sandbox/src/components/canvas/CanvasTrackList.tsx` (774 lines) | The per-track render loop extracted from Canvas.tsx — still coupled to ~10 tracks-reducer dispatch types directly (clip move/trim/stretch, label update, envelope points, etc.) rather than going through a narrower prop interface. This is a deliberate verbatim relocation, not new debt: reducing it needs the same Context-slicing change Canvas.tsx would have needed |
 
 ---
 

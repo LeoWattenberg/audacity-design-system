@@ -36,23 +36,24 @@ This document maps ALL keyboard event handlers in the codebase to prevent wastin
 
 ---
 
-### Label Keyboard Shortcuts
-**Location:** `apps/sandbox/src/components/Canvas.tsx` (lines ~686-800)
+### Label Keyboard & Mouse Shortcuts
+**Location:** Mouse drag/resize (move, extend/reduce region edges, expand-to-all-tracks click) is `apps/sandbox/src/components/LabelRenderer.tsx`, rendered from `apps/sandbox/src/components/canvas/CanvasTrackList.tsx` (itself extracted from Canvas.tsx). Delete/Backspace is `apps/sandbox/src/hooks/handlers/deleteHandlers.ts` (`handleDeleteLabels`).
 
-⚠️ **IMPORTANT:** Label keyboard handlers are in the SANDBOX APP, not in the components package!
+⚠️ **IMPORTANT:** Label mouse handlers are in the SANDBOX APP, not in the components package!
 
-**Handlers:**
+⚠️ **Keyboard move/trim is currently dead code.** `packages/components/src/hooks/useLabelKeyboardHandling.ts` implements Cmd+Arrow move and Shift/Cmd+Shift+Arrow trim exactly as described below, but as of this writing it (and the `LabelMarker` component it was written for) is not imported anywhere in the active render tree — `LabelRenderer.tsx`, which is what's actually rendered, has no `onKeyDown`. Don't assume these shortcuts work without checking; verify against the live component tree first.
+
+**Handlers (implemented in `useLabelKeyboardHandling.ts`, not currently wired up):**
 - **Cmd+Left/Right** - Move label horizontally by 0.1s
-- **Delete/Backspace** - Delete label
 - **Shift+Left** - Move left edge left (EXTEND) for region labels
 - **Shift+Right** - Move right edge right (EXTEND) for region labels
 - **Cmd+Shift+Left** - Move right edge left (REDUCE) for region labels
 - **Cmd+Shift+Right** - Move left edge right (REDUCE) for region labels
-- **Arrow keys only** - Navigate between labels
 
-**Dispatch actions:**
-- `UPDATE_LABEL` - For moving/trimming labels
-- `DELETE_LABEL` - For deleting labels
+**Live handlers:**
+- **Delete/Backspace** - Delete selected label(s) (`deleteHandlers.ts`, dispatches `UPDATE_TRACK` with a filtered `labels` array — there is no `DELETE_LABEL` action type)
+- **Left/right ear mouse-down** - Resize region label edges (`LabelRenderer.tsx`)
+- **Banner mouse-down / click** - Move label, or expand a point label to all tracks (`LabelRenderer.tsx`, dispatches `UPDATE_LABEL`)
 
 ---
 
@@ -154,7 +155,6 @@ For trim/extend operations (applies to both clips and labels):
 
 ## Notes
 
-- Label handlers are in Canvas.tsx because labels are managed by the app's reducer, not a reusable component
+- Label mouse handlers are in the sandbox app's `LabelRenderer.tsx` because labels are managed by the app's reducer, not a reusable component; label keyboard trim/move is written against the older `LabelMarker` component (`useLabelKeyboardHandling.ts`) and is not wired into the active render tree — see the Label Keyboard & Mouse Shortcuts section above
 - Clip handlers are in TrackNew.tsx because clips use a controlled component pattern
-- The LabelMarker component itself does NOT handle trim shortcuts - that's in Canvas.tsx
 - The global ArrowUp/Down handler is deliberately suppressed inside all ARIA role containers to avoid interfering with component-level navigation
