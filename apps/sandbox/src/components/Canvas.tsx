@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { TrackNew, useAudioSelection, SpectralSelectionOverlay, CLIP_CONTENT_OFFSET, useAccessibilityProfile, useTabOrder, useTheme, scrollIntoViewIfNeeded, announce } from '@dilsonspickles/components';
 import type { SpectrogramScale } from '@dilsonspickles/components';
-import { ENVELOPE_POINT_STYLES, type EnvelopePointStyleKey, type SnapGrid } from '@audacity-ui/core';
+import { type EnvelopePointStyleKey, type SnapGrid } from '@audacity-ui/core';
 import { useTracksState, useTracksDispatch, type Clip } from '../contexts/TracksContext';
 import { useSpectralSelection } from '../contexts/SpectralSelectionContext';
 import { useEditingBehaviorPrefs, useAppearancePrefs } from '@dilsonspickles/components';
@@ -30,6 +30,8 @@ import { calculateTrackYOffset } from '../utils/trackLayout';
 import { resolveTrackIndexFromY } from '../utils/canvasGeometry';
 import { computeCanvasHeights } from '../utils/canvasLayout';
 import { resolveSnapGuideline } from '../utils/snapGuideline';
+import { deriveEnvelopePointSizes } from '../utils/envelopePointSizes';
+import { useDragHighlightIds } from '../hooks/useDragHighlightIds';
 import { TOP_GAP, TRACK_GAP, DEFAULT_TRACK_HEIGHT, CLIP_HEADER_HEIGHT } from '../constants/canvas';
 import type { SnapOptions } from '../utils/snapToGrid';
 import './Canvas.css';
@@ -226,28 +228,10 @@ export function Canvas({
   const bgColor = backgroundColor ?? theme.background.canvas.default;
 
   // Get envelope control point sizes from the selected profile
-  const envelopePointSizes = React.useMemo(() => {
-    const profile = ENVELOPE_POINT_STYLES[controlPointStyle];
-    return {
-      outerRadius: profile.outerRadius,
-      innerRadius: profile.innerRadius,
-      outerRadiusHover: profile.outerRadiusHover,
-      innerRadiusHover: profile.innerRadiusHover,
-      lineWidth: profile.lineWidth,
-      dualRingHover: profile.dualRingHover,
-      solidCircle: profile.solidCircle,
-      hoverRingColor: profile.hoverRingColor,
-      hoverRingStrokeColor: profile.hoverRingStrokeColor,
-      showWhiteOutlineOnHover: profile.showWhiteOutlineOnHover ?? false,
-      showBlackOutlineOnHover: profile.showBlackOutlineOnHover ?? false,
-      showBlackCenterOnHover: profile.showBlackCenterOnHover ?? false,
-      showGreenCenterFillOnHover: profile.showGreenCenterFillOnHover,
-      whiteCenterOnHover: profile.whiteCenterOnHover,
-      whiteCenter: profile.whiteCenter,
-      dualStrokeLine: profile.dualStrokeLine,
-      lineColor: profile.lineColor,
-    };
-  }, [controlPointStyle]);
+  const envelopePointSizes = React.useMemo(
+    () => deriveEnvelopePointSizes(controlPointStyle),
+    [controlPointStyle]
+  );
 
 
   // Track hovered ear for hover effects
@@ -342,33 +326,17 @@ export function Canvas({
     snapOptions,
   });
 
-  const draggingClipIds = React.useMemo(() => {
-    if (!isDraggingClips) return new Set<number>();
-    const dragState = clipDragStateRef.current;
-    if (!dragState) return new Set<number>();
-    if (dragState.selectedClipsInitialPositions && dragState.selectedClipsInitialPositions.length > 1) {
-      return new Set<number>(dragState.selectedClipsInitialPositions.map(p => p.clipId));
-    }
-    return new Set<number>([dragState.clip.id]);
-  }, [isDraggingClips, clipDragStateRef]);
-
-  // Every selected clip while Cmd/Ctrl is held during a Cmd+Arrow
-  // clip nudge. Used to lift z-index only — the ghost 50% opacity
-  // that mouse-drag applies is intentionally omitted so keyboard
-  // moves render the clip solidly on top of anything it passes over.
-  const raisedClipIds = React.useMemo(() => {
-    if (!isCmdArrowMoving) return new Set<number>();
-    const ids = new Set<number>();
-    tracks.forEach((t) => {
-      t.clips.forEach((c) => {
-        if (c.selected) ids.add(c.id);
-      });
-      (t.midiClips || []).forEach((c) => {
-        if (c.selected) ids.add(c.id);
-      });
-    });
-    return ids;
-  }, [isCmdArrowMoving, tracks]);
+  // draggingClipIds (mouse-drag ghosting) + raisedClipIds (Cmd+Arrow
+  // keyboard nudge z-index lift) — extracted to a hook. See
+  // useDragHighlightIds for the note on the ref-in-memo pattern
+  // (clipDragStateRef.current is read inside draggingClipIds but is
+  // intentionally not a memo dependency).
+  const { draggingClipIds, raisedClipIds } = useDragHighlightIds({
+    isDraggingClips,
+    clipDragStateRef,
+    isCmdArrowMoving,
+    tracks,
+  });
 
   // Clip trimming - extracted to custom hook
   const {
