@@ -1,7 +1,7 @@
 import React from 'react';
 import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
-import { ApplicationHeader, ProjectToolbar, ToastContainer, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useAppearancePrefs, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, Plugin, ContextMenu, ContextMenuItem, Dialog, Button, Footer, ProgressBar, MasterMeterVertical, type StoredProject } from '@dilsonspickles/components';
+import { ApplicationHeader, ProjectToolbar, ToastContainer, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useAppearancePrefs, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, ContextMenu, ContextMenuItem, Dialog, Button, Footer, ProgressBar, MasterMeterVertical, type StoredProject } from '@dilsonspickles/components';
 import {
   deleteProject as adieuDeleteProject,
   ADIEU_BASE,
@@ -35,7 +35,6 @@ const OAuthCallback = React.lazy(() =>
 );
 import { RecordingManager } from './utils/RecordingManager';
 import { createMenuDefinitions } from './data/menuDefinitions';
-import { createInitialPlugins } from './data/plugins';
 import { MuseHubProvider, useMuseHub, useInstalledEffects } from './contexts/MuseHubContext';
 import { AdieuProvider, useAdieu } from './contexts/AdieuContext';
 import { MuseHubHomeAccountCard } from './components/wallet/MuseHubHomeAccountCard';
@@ -46,6 +45,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { ClipboardState } from './hooks/useKeyboardShortcuts';
 import { useGrabToPan } from './hooks/useGrabToPan';
 import { useProjectManagement } from './hooks/useProjectManagement';
+import { usePlugins } from './hooks/usePlugins';
 import { DialogProvider, useDialogs } from './contexts/DialogContext';
 import { ContextMenuProvider, useContextMenus } from './contexts/ContextMenuContext';
 import { useLoopRegion } from './hooks/useLoopRegion';
@@ -167,28 +167,11 @@ function CanvasDemoContent() {
 
   useInitialTrackSelection({ state, dispatch });
 
-  // Convert EFFECT_REGISTRY to Plugin[] format for PluginManagerDialog
-  const [plugins, setPlugins] = React.useState<Plugin[]>(createInitialPlugins);
   // Append currently-installed MuseHub plugins so they show up in the
   // Plugin Manager. Uninstalled-but-owned effects are not listed here —
   // they only live in the Owned view of the marketplace modal until the
   // user reinstalls them.
   const installedEffects = useInstalledEffects();
-  const allPlugins = React.useMemo<Plugin[]>(() => {
-    if (installedEffects.length === 0) return plugins;
-    const existing = new Set(plugins.map((p) => p.id));
-    const extras: Plugin[] = installedEffects
-      .filter((e) => !existing.has(e.id))
-      .map((e) => ({
-        id: e.id,
-        name: e.name,
-        type: 'VST3',
-        category: 'Effect',
-        path: `/Library/Audio/Plug-Ins/VST3/MuseHub/${e.vendor}/${e.name}.vst3`,
-        enabled: true,
-      }));
-    return [...plugins, ...extras];
-  }, [plugins, installedEffects]);
 
   // Mirror the plugins' enabled/disabled state into the MuseHub context so
   // the picker context menu and slot caret menus filter disabled plugins out.
@@ -227,53 +210,13 @@ function CanvasDemoContent() {
     dispatch,
   });
 
-  React.useEffect(() => {
-    syncDisabledFromList(allPlugins.map((p) => ({ id: p.id, enabled: p.enabled })));
-  }, [allPlugins, syncDisabledFromList]);
-
-  // Flag effects in the current project whose underlying plugins are no
-  // longer available — signed out (lost entitlement) or locally uninstalled.
-  // Mirrors how a real DAW shows "Missing plugin" warnings.
-  //
-  // Only fires when the set of missing names actually changes, so editing
-  // tracks doesn't re-pop the modal.
-  const lastMissingMissingRef = React.useRef<string>('');
-  React.useEffect(() => {
-    const builtInIds = new Set(getAllEffects().map((e) => e.id));
-    const installedIds = new Set(installedEffects.map((e) => e.id));
-    const missing = new Set<string>();
-    const scan = (effects: Array<{ id: string; name: string }> | undefined) => {
-      for (const e of effects ?? []) {
-        if (!builtInIds.has(e.id) && !installedIds.has(e.id)) missing.add(e.name);
-      }
-    };
-    for (const t of state.tracks) scan(t.effects);
-    scan(state.masterEffects);
-    const names = Array.from(missing).sort();
-    const sig = names.join('|');
-    if (sig === lastMissingMissingRef.current) return;
-    lastMissingMissingRef.current = sig;
-    if (names.length > 0) showMissingPlugins(names);
-  }, [
-    museHubSignedIn,
-    installedEffects,
-    state.tracks,
-    state.masterEffects,
+  const { allPlugins, setPluginsWithSync } = usePlugins({
+    state,
     showMissingPlugins,
-  ]);
+    syncDisabledFromList,
+    installedEffects,
+  });
 
-  // Intercept setPlugins from the Plugin Manager so toggling an enabled
-  // state both updates the local Plugin[] and the shared disabled-IDs set.
-  const setPluginsWithSync: React.Dispatch<React.SetStateAction<Plugin[]>> = React.useCallback(
-    (update) => {
-      setPlugins((prev) => {
-        const next = typeof update === 'function' ? (update as (p: Plugin[]) => Plugin[])(prev) : update;
-        syncDisabledFromList(next.map((p) => ({ id: p.id, enabled: p.enabled })));
-        return next;
-      });
-    },
-    [syncDisabledFromList],
-  );
   const [isCloudUploading, setIsCloudUploading] = React.useState(false);
   const [debugTrackCount, setDebugTrackCount] = React.useState(4);
   const [showFocusDebug, setShowFocusDebug] = React.useState(false);
