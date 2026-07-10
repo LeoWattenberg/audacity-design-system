@@ -38,9 +38,10 @@ export function useCmdArrowMove(options: UseCmdArrowMoveOptions): UseCmdArrowMov
   // Every Cmd+Arrow nudge dispatches a MOVE_SELECTED_CLIPS(_TO_TRACK)
   // action, which updates `tracks`. Listing `tracks` as an effect dep
   // would mean the document keyup listener gets removed + re-added on
-  // every nudge — a keyup arriving between removeEventListener and
-  // addEventListener could be silently lost. Read the live value
-  // through a ref so the effect binds once.
+  // every nudge. That's not lossy (cleanup + re-run is synchronous), but
+  // it churns the DOM listener needlessly. Read the live value through a
+  // ref instead so the effect binds the listener once, while onKeyUp
+  // still sees up-to-date clip positions.
   const tracksRef = useRef(tracks);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
 
