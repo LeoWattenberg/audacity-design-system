@@ -2,13 +2,10 @@ import React from 'react';
 import { TracksProvider } from './contexts/TracksContext';
 import { SpectralSelectionProvider } from './contexts/SpectralSelectionContext';
 import { ApplicationHeader, ProjectToolbar, ToastContainer, SelectionToolbar, HomeTab, AccessibilityProfileProvider, PreferencesProvider, useAccessibilityProfile, usePreferences, useAppearancePrefs, useWelcomeDialog, ThemeProvider, useTheme, lightTheme, darkTheme, ContextMenu, ContextMenuItem, Dialog, Button, Footer, ProgressBar, MasterMeterVertical, type StoredProject } from '@dilsonspickles/components';
-import {
-  deleteProject as adieuDeleteProject,
-  ADIEU_BASE,
-} from './lib/adieu-client';
-import { type EnvelopePointStyleKey, getAllEffects } from '@audacity-ui/core';
+import { ADIEU_BASE } from './lib/adieu-client';
+import { type EnvelopePointStyleKey } from '@audacity-ui/core';
 import type { SpectrogramScale } from '@dilsonspickles/components';
-import { saveProject, getProject, getProjects, deleteProject } from './utils/projectDatabase';
+import { saveProject, getProject, getProjects } from './utils/projectDatabase';
 // import { TimeSelectionContextMenu } from './components/TimeSelectionContextMenu';
 import { useTracks } from './contexts/TracksContext';
 import type { Track } from './contexts/TracksContext';
@@ -64,7 +61,8 @@ import { useProjectAutoSave } from './hooks/useProjectAutoSave';
 import { useCloudProjectCleanup } from './hooks/useCloudProjectCleanup';
 import { PlaybackProvider } from './contexts/PlaybackContext';
 import { LoopRegionProvider } from './contexts/LoopRegionContext';
-import { loadCloudProjectAsStored, cloudSummaryToStored, type CloudAudioFile } from './utils/cloudProjects';
+import { cloudSummaryToStored, type CloudAudioFile } from './utils/cloudProjects';
+import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 
 const MIN_ZOOM = 10; // Minimum pixels per second (matches useZoomControls)
 
@@ -697,6 +695,26 @@ function CanvasDemoContent() {
     setIsCloudProject, setCurrentProjectId, audioManagerRef,
   });
 
+  // HomeTab's new/open/delete project handlers
+  const { handleNewProject, handleOpenProject, handleDeleteProject } = useProjectLifecycle({
+    isElectron: IS_ELECTRON,
+    createNewProject,
+    audioManagerRef,
+    museHubSignedIn,
+    showMissingPlugins,
+    cloudProjectIds,
+    cloudLoadCancelledRef,
+    setCloudLoadProgress,
+    setCurrentProjectId,
+    setIsCloudProject,
+    setActiveMenuItem,
+    setIndexedDBProjects,
+    indexedDBProjects,
+    adieuSignedIn,
+    adieuCloudProjects,
+    adieuRefreshProjects,
+  });
+
   // When Electron opens a fresh window for "New Project", it appends
   // ?newProject=1 to the URL. Detect it on boot, create a blank project,
   // jump to the project view, and strip the query so a reload doesn't
@@ -1101,144 +1119,10 @@ function CanvasDemoContent() {
                 'noopener,noreferrer',
               );
             }}
-            onNewProject={async () => {
-              // In Electron, "New Project" opens a fresh window instead of
-              // replacing the current one — mirrors how desktop DAWs treat
-              // each project as its own document window. The new window
-              // boots into the home tab; the user can then create/open a
-              // project there.
-              if (IS_ELECTRON) {
-                const api = (window as unknown as {
-                  electronShell?: { openNewWindow: () => void };
-                }).electronShell;
-                if (api) {
-                  api.openNewWindow();
-                  return;
-                }
-              }
-              await createNewProject();
-              // Reload projects list
-              const projects = await getProjects();
-              setIndexedDBProjects(projects);
-              setActiveMenuItem('project');
-            }}
-            onOpenProject={async (projectId) => {
-              // Cloud projects come from moose-hub; locals from IndexedDB.
-              // The lists are presented exclusively (no merged view) so this
-              // dispatch is unambiguous.
-              const isCloud = cloudProjectIds.has(projectId);
-              if (isCloud) {
-                cloudLoadCancelledRef.current = false;
-                setCloudLoadProgress({ progress: 5, message: 'Connecting to audio.com…' });
-              }
-              const bailIfCancelled = () => isCloud && cloudLoadCancelledRef.current;
-              try {
-              if (isCloud) setCloudLoadProgress({ progress: 10, message: 'Downloading project…' });
-              const project = isCloud
-                ? await loadCloudProjectAsStored(projectId)
-                : await getProject(projectId);
-              if (bailIfCancelled()) return;
-              if (project) {
-                if (isCloud) setCloudLoadProgress({ progress: 60, message: 'Decoding audio…' });
-                setCurrentProjectId(projectId);
-
-                // Restore cloud project status (project-specific)
-                setIsCloudProject(project.isCloudProject ?? false);
-
-                // Restore tracks state from project data, or reset to empty if none
-                if (project.data?.tracks) {
-                  if (isCloud) setCloudLoadProgress({ progress: 75, message: 'Restoring tracks…' });
-                  // Runtime hardening: older persisted projects may omit `clips` on a track
-                  // (e.g. label tracks saved before the field was required). Normalise to []
-                  // so Track.clips: Clip[] invariant holds for all downstream consumers.
-                  const normalizedTracks = project.data.tracks.map((t) => ({
-                    ...t,
-                    clips: t.clips ?? [],
-                  }));
-                  dispatch({ type: 'SET_TRACKS', payload: normalizedTracks });
-
-                  // If the user is signed out of MuseHub, any effects in the
-                  // project that aren't built-in Audacity effects are
-                  // inaccessible — surface them in the Missing plugins modal.
-                  if (!museHubSignedIn) {
-                    const builtIn = new Set(
-                      getAllEffects().map((e) => e.name.toLowerCase()),
-                    );
-                    const missing: string[] = [];
-                    const seen = new Set<string>();
-                    for (const track of project.data.tracks) {
-                      for (const effect of track.effects ?? []) {
-                        const name = effect.name;
-                        if (!builtIn.has(name.toLowerCase()) && !seen.has(name)) {
-                          seen.add(name);
-                          missing.push(name);
-                        }
-                      }
-                    }
-                    if (missing.length > 0) {
-                      showMissingPlugins(missing);
-                    }
-                  }
-                } else {
-                  dispatch({ type: 'SET_TRACKS', payload: [] });
-                }
-
-                // Restore master effects
-                dispatch({
-                  type: 'SET_MASTER_EFFECTS',
-                  payload: Array.isArray(project.data?.masterEffects) ? project.data.masterEffects : [],
-                });
-
-                // Restore audio buffers from saved WAV data
-                if (project.data?.audioBuffers) {
-                  if (isCloud) {
-                    const clipCount = Object.keys(project.data.audioBuffers).length;
-                    setCloudLoadProgress({
-                      progress: 88,
-                      message: `Loading ${clipCount} audio clip${clipCount === 1 ? '' : 's'}…`,
-                    });
-                  }
-                  const audioManager = audioManagerRef.current;
-                  await audioManager.importBuffersFromWav(project.data.audioBuffers);
-                  if (bailIfCancelled()) return;
-                  // Reload clips for playback now that buffers are available
-                  if (project.data.tracks) {
-                    audioManager.loadClips(project.data.tracks, 0);
-                  }
-                }
-
-                // Always start playhead at 0 on project open
-                dispatch({ type: 'SET_PLAYHEAD_POSITION', payload: 0 });
-
-                if (isCloud) setCloudLoadProgress({ progress: 100, message: 'Done' });
-                setActiveMenuItem('project');
-              } else {
-              }
-              } finally {
-                if (isCloud) {
-                  // Brief hold at 100% so the user sees the bar fill before it
-                  // disappears; matches the save-toast dismiss delay.
-                  setTimeout(() => setCloudLoadProgress(null), 250);
-                }
-              }
-            }}
+            onNewProject={handleNewProject}
+            onOpenProject={handleOpenProject}
             onOpenOther={handleOpenFromComputer}
-            onDeleteProject={async (projectId) => {
-              // Delete from both layers so the project doesn't pop back in
-              // via the merge after the next refetch. catch() so a missing
-              // entry on either side doesn't abort the other delete.
-              const isCloud =
-                adieuSignedIn &&
-                (adieuCloudProjects.some((p) => p.id === projectId) ||
-                  indexedDBProjects.some((p) => p.id === projectId && p.isCloudProject));
-              await Promise.allSettled([
-                deleteProject(projectId),
-                isCloud ? adieuDeleteProject(projectId) : Promise.resolve(),
-              ]);
-              const updated = await getProjects();
-              setIndexedDBProjects(updated);
-              if (isCloud) await adieuRefreshProjects();
-            }}
+            onDeleteProject={handleDeleteProject}
             currentProjectId={currentProjectId}
             extraAccountsSections={<MuseHubHomeAccountCard />}
           />
