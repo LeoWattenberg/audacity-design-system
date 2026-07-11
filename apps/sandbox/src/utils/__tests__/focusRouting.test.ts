@@ -158,7 +158,7 @@ describe('findFirstClipInTrack', () => {
     expect(findFirstClipInTrack(r, 0)).toBe(clip1);
   });
 
-  it('returns null when the track has clips but none marked as first (empty track)', () => {
+  it('returns null when the track element has no clips at all (empty track)', () => {
     const r = mount();
     const trackEl = document.createElement('div');
     trackEl.setAttribute('data-track-index', '0');
