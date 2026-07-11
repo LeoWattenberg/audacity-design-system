@@ -151,16 +151,16 @@ A dependency-free Node script that enforces a zero-untracked-`any` policy across
 
 ## Integration Tests
 
-The sandbox app contains two integration test suites driven by a shared harness:
+The sandbox app contains two integration test suites driven by a shared harness — both render real component trees (real reducer, real DOM) rather than isolated units.
 
 | File | What it covers |
 |---|---|
-| `apps/sandbox/src/__tests__/integrationHarness.tsx` | Shared test harness — renders the full `App` with a minimal default project, providing setUp/tearDown and helper methods for driving the UI. Isolates the audio engine mock via a custom `MockAudioEngine` to suppress real playback during tests. Used by both integration suites. |
-| `apps/sandbox/src/__tests__/audioMock.ts` | Audio engine mock — stubs `Tone.Synth`, `Tone.Sampler`, and playback state. Returns predictable durations so integration tests can assert on playhead position and clip rendering without network delays. |
-| `apps/sandbox/src/__tests__/App.integration.test.tsx` | Full-app integration suite — tests global features (preferences, menus, playback, project lifecycle, keyboard shortcuts). Run with `pnpm --filter @audacity-ui/sandbox test`. Currently ~150 tests. |
-| `apps/sandbox/src/__tests__/Canvas.integration.test.tsx` | Canvas/track/clip integration suite — tests interaction flows (track selection, clip dragging, envelope editing, trim/stretch, label operations). Run with `pnpm --filter @audacity-ui/sandbox test`. Currently ~150 tests. |
+| `apps/sandbox/src/__tests__/integrationHarness.tsx` | Shared harness. `installJsdomStubs()` patches browser APIs jsdom lacks (`ResizeObserver`, `matchMedia`, `scrollTo`, `scrollIntoView`) that the app touches during a render. `renderApp()` renders the real `App` tree — clears `localStorage`, seeds `showWelcomeDialog: false` so the WelcomeDialog doesn't cover the chrome tests need, then renders. `renderCanvas()` renders `Canvas` inside a real provider stack (`PreferencesProvider`, `ThemeProvider`, `AccessibilityProfileProvider` with the real `'au4-tab-groups'` profile, `TracksProvider` seeded via `initialTracks`, `SpectralSelectionProvider`). Also imports `'fake-indexeddb/auto'` (registers a global IndexedDB shim, deliberately not in the shared vitest `setupFiles` so unit tests stay unaffected). |
+| `apps/sandbox/src/__tests__/audioMock.ts` | `vi.mock('@audacity-ui/audio', () => audioMockFactory())` factory — kept in its own module (not `integrationHarness.tsx`) to avoid a circular-import deadlock with that file's `import App from '../App'`. Builds a self-populating `Proxy` of `vi.fn()`s: methods the app depends on for a sane return shape (`getIsPlaying`, `getClipBuffer`, `exportBuffersAsWav`, `mixdown`, `generateTone`, etc.) are pre-seeded with typed stubs; any other method the app calls gets a bare `vi.fn()` on first access, so the mock surface can't silently drift from what the app actually calls. No `Tone.Synth`/`Tone.Sampler` stubs — the real `@audacity-ui/audio` package (and Tone.js) is replaced wholesale, not partially stubbed. |
+| `apps/sandbox/src/__tests__/App.integration.test.tsx` | Full-app seam suite via `renderApp()` — 5 tests: app boot (renders project chrome), Preferences modal (Cmd+, opens it, every nav page renders), Theme (switching to Dark re-themes the tree and persists to `localStorage`), Loop (toggling Loop drives the audio stub and marks the button active), and Transport toolbar positions (gripper-drag through docked-top → floating → docked-bottom → docked-top). |
+| `apps/sandbox/src/__tests__/Canvas.integration.test.tsx` | Canvas/track/clip seam suite via `renderCanvas()` — 6 tests: clip selection (header click selects, body click on an unselected clip deselects), Shift+Click time-selection scope (extends a selection scoped to the tracks the gesture spans), track ArrowDown navigation (focus moves to the next track), Cmd+ArrowDown reorder + Meta-release overlap resolution (moves the selected clip to the next track, then trims the overlapped neighbor), keyboard trim (`[` shrinks the focused clip by the 0.1s step), and Tab roving between clips. |
 
-Total: ~300 sandbox integration tests + ~75 component unit tests; run all with `pnpm test` from the repo root.
+Run both suites with `pnpm --filter @audacity-ui/sandbox test` (alongside the rest of the sandbox unit tests); run everything including `@dilsonspickles/components` with `pnpm test` from the repo root.
 
 ---
 

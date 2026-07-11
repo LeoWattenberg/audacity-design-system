@@ -21,7 +21,7 @@ node scripts/check-any.mjs                     # from repo root
 
 CI runs these same gates on every push/PR — `.github/workflows/test.yml`.
 
-**The baseline is fully green** (as of 2026-07-11: sandbox 290 passed, components 75 passed, 0 tsc errors in both, guard 0 violations). If a gate fails, your change caused it — do not assume pre-existing breakage. Every `any` (including `as any`, `Record<string, any>`, etc.) needs a `// justified: <reason>` comment or the guard fails.
+**The baseline is fully green**: all tests pass with no skips, `tsc --noEmit` reports 0 errors in both packages, and the `any` guard reports 0 violations. If a gate fails, your change caused it — do not assume pre-existing breakage. Every `any` (including `as any`, `Record<string, any>`, etc.) needs a `// justified: <reason>` comment or the guard fails.
 
 ### Load-bearing conventions — violating these causes real bugs
 
@@ -429,7 +429,7 @@ Other layout constants:
 
 - Repository originally named `clip-envelopes-prototype`
 - Default branch: `master`
-- `.gitignore` excludes: `node_modules/`, `dist/`, `pnpm-lock.yaml`, `.claude/`
+- `.gitignore` excludes: `node_modules/`, `dist/`, `.claude/`. `pnpm-lock.yaml` is TRACKED (not ignored) — CI's `actions/setup-node` pnpm cache keys off it, so it must stay committed.
 
 ## Package Publishing (Future)
 
