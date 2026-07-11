@@ -24,7 +24,7 @@ import { useTimeSelectionTabHandler } from '../hooks/useTimeSelectionTabHandler'
 import { useFlatNavTabRouter } from '../hooks/useFlatNavTabRouter';
 import { usePlayback } from '../contexts/PlaybackContext';
 import { useLoopRegionContext } from '../contexts/LoopRegionContext';
-import { computeWholeGroupIds, regroupCopiedClips } from '../utils/clipGroupCopy';
+import { buildNewTrack, buildDuplicatedTracks } from '../utils/trackManagement';
 import {
   findTrackControlPanelByIndex,
   findFirstButtonInTrackControlPanel,
@@ -500,35 +500,7 @@ export function EditorLayout(props: EditorLayoutProps) {
             setRulerFlyout(null);
           }}
           onAddTrackType={(type: TrackType) => {
-            // Use max(id)+1 — `length+1` collides after a middle track was deleted.
-            const nextTrackId = Math.max(...state.tracks.map((t) => t.id), 0) + 1;
-            const prefix =
-              type === 'label' ? 'Label' :
-              type === 'stereo' ? 'Stereo' :
-              type === 'mono' ? 'Mono' :
-              type === 'midi' ? 'MIDI' :
-              'Track';
-            // Suffix number is also derived from existing names, not length,
-            // so duplicates aren't introduced after deletes.
-            const namePattern = new RegExp(`^${prefix} (\\d+)$`);
-            const usedNumbers = state.tracks
-              .map((t) => {
-                const m = namePattern.exec(t.name ?? '');
-                return m ? parseInt(m[1], 10) : NaN;
-              })
-              .filter((n: number) => !isNaN(n));
-            const nextNameNumber = usedNumbers.length === 0 ? 1 : Math.max(...usedNumbers) + 1;
-
-            const trackType: 'audio' | 'label' | 'midi' = type === 'label' ? 'label' : type === 'midi' ? 'midi' : 'audio';
-            const newTrack = {
-              id: nextTrackId,
-              name: `${prefix} ${nextNameNumber}`,
-              type: trackType,
-              height: type === 'label' ? 76 : 114,
-              ...(type === 'stereo' ? { channelSplitRatio: 0.5 } : {}),
-              clips: [],
-              ...(type === 'midi' ? { midiClips: [] } : {}),
-            };
+            const newTrack = buildNewTrack(type, state.tracks);
             dispatch({ type: 'ADD_TRACK', payload: newTrack });
           }}
           showMidiOption={true}
@@ -547,50 +519,8 @@ export function EditorLayout(props: EditorLayoutProps) {
               ? [...state.selectedTrackIndices]
               : [trackIndex];
 
-            // Descending so each splice in the reducer doesn't shift
-            // the indices we haven't processed yet.
-            trackIndices.sort((a, b) => b - a);
-
-            let nextClipId = Math.max(...state.tracks.flatMap((t) => t.clips.map((c) => c.id)), 0) + 1;
-            let nextTrackId = Math.max(...state.tracks.map((t) => t.id), 0) + 1;
-
-            // Clone all clips first so group entirety is judged on the
-            // union of every track duplicated in this one operation
-            // (spec: copies regroup fresh iff the whole group was copied).
-            const perTrack = trackIndices.flatMap((idx: number) => {
-              const originalTrack = state.tracks[idx];
-              if (!originalTrack) return [];
-              return [{
-                idx,
-                originalTrack,
-                clones: originalTrack.clips.map((clip) => ({
-                  ...clip,
-                  id: nextClipId++,
-                })),
-              }];
-            });
-            const wholeGroups = computeWholeGroupIds(
-              perTrack.flatMap((p) => p.originalTrack.clips),
-              state.tracks,
-            );
-            const regrouped = regroupCopiedClips(
-              perTrack.flatMap((p) => p.clones),
-              wholeGroups,
-            );
-
-            let cloneIdx = 0;
-            perTrack.forEach(({ idx, originalTrack, clones }) => {
-              const duplicatedTrack = {
-                ...originalTrack,
-                id: nextTrackId++,
-                name: `${originalTrack.name} (copy)`,
-                clips: clones.map(() => regrouped[cloneIdx++]),
-                // Drop the copy directly after its source so it's
-                // adjacent in the side panel rather than floating
-                // at the bottom of the track stack.
-                insertAt: idx + 1,
-              };
-
+            const duplicatedTracks = buildDuplicatedTracks(trackIndices, state.tracks);
+            duplicatedTracks.forEach((duplicatedTrack) => {
               dispatch({
                 type: 'ADD_TRACK',
                 payload: duplicatedTrack,
