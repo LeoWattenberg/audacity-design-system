@@ -380,7 +380,7 @@ Other layout constants:
 - ✅ **Accessibility** - Tab groups, roving tabindex, composite widgets, WCAG compliance
 - ✅ **Type campaign** — whole-app `any` elimination, enforced by `scripts/check-any.mjs` (every `any` carries `// justified:`)
 - ✅ **Structural decomposition** (fable5-finalize, 2026-07-11) — App.tsx 1864→1244, Canvas.tsx 1959→771, PreferencesModal 1979→210; LoopRegionContext + preference domain slices extracted; per-page modal files
-- ✅ **EditorLayout decomposition** (2026-07-11/12) — EditorLayout.tsx 2170→1183 (composition root: context wiring + layout scaffolding + Canvas/TrackControlPanel prop assembly); `components/editor/` (LoopRegionStalks, PunchPointIndicator, EditorBottomDrawer, TrackEffectsPanel), interaction hooks (useMeasuredWidth, useRulerFlyout, useTimelineRulerInteractions, useTrackPanelHandlers), and pure utils (focusRouting, trackManagement) extracted — see `docs/codebase-map.md`
+- ✅ **EditorLayout decomposition** (2026-07-11/12) — EditorLayout.tsx 2170→1178 (composition root: context wiring + layout scaffolding + Canvas/TrackControlPanel prop assembly); `components/editor/` (LoopRegionStalks, PunchPointIndicator, EditorBottomDrawer, TrackEffectsPanel), interaction hooks (useMeasuredWidth, useRulerFlyout, useTimelineRulerInteractions, useTrackPanelHandlers), and pure utils (focusRouting, trackManagement) extracted — see `docs/codebase-map.md`
 - ✅ **Green test/type baseline** — both packages fully green (no pre-existing failures to work around)
 
 **Next Steps (per roadmap):**
