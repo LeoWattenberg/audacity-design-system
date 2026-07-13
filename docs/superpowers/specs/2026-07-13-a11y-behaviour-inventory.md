@@ -69,9 +69,10 @@
 - **Used by:** ProjectToolbar tabs, EffectsPanel grid cells, ExportModal/PreferencesModal `TabGroupField`.
 
 ### Global ArrowUp/Down = move track focus outline (with tab-group guard)
-- **Behaviour:** Document handler moves the focused-track outline on ArrowUp/Down. Early-exits when the target is a clip (`data-clip-id`), a per-track ruler (`data-track-ruler-index`), inside `.project-toolbar`/`.transport-toolbar`, the add-track group, or inside a multi-item `[role=toolbar|group|menubar|region|menu]`. If a clip is selected-but-unfocused it steps from that clip's track; single-item groups fall through to first/last track. Shift held → range-extend track selection; Cmd/Ctrl held → focus moves but selection is left (peek). Track panel is explicitly exempted so its own arrow nav wins.
+- **Behaviour:** Document handler moves the focused-track outline on ArrowUp/Down. Early-exits when the target is a clip (`data-clip-id`), a per-track ruler (`data-track-ruler-index`), inside `.project-toolbar`/`.transport-toolbar`, the add-track group, or inside a multi-item `[role=toolbar|group|menubar|region|menu]`. If a clip is selected-but-unfocused it steps from that clip's track; single-item groups fall through to first/last track. Shift held → range-extend track selection; Cmd/Ctrl held → focus moves but selection is left (**peek**). Track panel is explicitly exempted so its own arrow nav wins.
+- **Boundary — CLAMP, no wrap:** the move is gated `if (newIndex >= 0 && newIndex < tracks.length)`, so ArrowUp on the **first** track and ArrowDown on the **last** track do nothing (focus stays; it does **not** wrap around). The clip/container-level vertical nav (`onTrackNavigateVertical`) clamps identically (`if (targetIndex < 0 || targetIndex >= tracks.length) return`). The **peek** decouple (Cmd/Ctrl = focus moves, selection stays) is present in both handlers.
 - **Status:** VERIFIED
-- **Code:** `apps/sandbox/src/hooks/useKeyboardShortcuts.ts:362` (guard chain), handler `apps/sandbox/src/hooks/handlers/navigationHandlers.ts:114`
+- **Code:** `apps/sandbox/src/hooks/useKeyboardShortcuts.ts:362` (guard chain), handler `apps/sandbox/src/hooks/handlers/navigationHandlers.ts:114` (clamp `:125`, peek decouple `:119`/`:141`); clip/container path `apps/sandbox/src/hooks/useTrackKeyboardHandlers.ts:61` (clamp `:68`, peek `:90`)
 - **Profile-gated:** no (always active).
 
 ### Global ArrowLeft/Right = playhead nudge / time-selection / clip move
@@ -277,11 +278,17 @@
 - **Code:** `packages/components/src/TrackControlPanel/TrackControlPanel.tsx:734`
 - **Profile-gated:** no. (Undocumented in the four docs.)
 
-### Timeline ruler — focusable region
-- **Behaviour:** The timeline ruler wrapper is `role="region"` aria-label "Timeline ruler", `tabIndex = useTabOrder('timeline-ruler')` (=99), with its own keydown (playhead nudge/escape/context menu).
+### Timeline ruler — focusable region (tab stop 99) — keyboard behaviour
+- **Behaviour:** The timeline ruler wrapper is `role="region"` aria-label "Timeline ruler", `tabIndex = useTabOrder('timeline-ruler')` (=99). When focused its own `onKeyDown` handles: **Escape** → blur the ruler (`currentTarget.blur()`); **Shift+F10** → open the ruler context menu at bottom-centre; **ArrowUp/ArrowDown** → swallowed no-op (`preventDefault` + `stopPropagation`, focus stays put — deliberately consumed so the global "single-item region → jump into track list" handler can't steal focus); **ArrowLeft/ArrowRight** → nudge the playhead (`SET_PLAYHEAD_POSITION`): with snap ON each press lands on the next/previous grid division, with snap OFF the step is 0.1s and **Shift accelerates to 1s**. Mouse: right-click / context-menu opens the same menu; click-to-play (when enabled); mouse-move tracks the cursor time.
 - **Status:** VERIFIED
-- **Code:** `apps/sandbox/src/components/EditorLayout.tsx:524`
-- **Profile-gated:** flat → 0.
+- **Code:** wrapper `apps/sandbox/src/components/EditorLayout.tsx:524` (role/tabIndex/handlers); handler bundle `apps/sandbox/src/hooks/useTimelineRulerInteractions.ts:59` (Escape `:60`, Shift+F10 `:63`, Up/Down swallow `:77`, Left/Right playhead nudge `:86`, context menu `:169`)
+- **Profile-gated:** flat → 0 (still focusable, keydown unchanged).
+
+### Add-track group (tab stop 98) — keyboard behaviour
+- **Behaviour:** The "Add new" control sits in a `role="group"` aria-label **"Add track"** (`.track-control-side-panel__add-group`) wrapping a single Button whose `tabIndex = useTabOrder('add-track')` (=98). The group's class is what the global ArrowUp/Down track-focus handler keys on to **no-op arrow keys pressed within it** (so arrows don't jump into the track list). **Enter/Space** on the button (native Button) opens the **AddTrackFlyout** — a roving menu of track types positioned below the button, with `autoFocus` set when the open was keyboard-triggered. Inside the flyout: auto-focus the first option on keyboard open; **ArrowLeft/Right/Up/Down** move between options with **wrap** (updating roving tabindex); **Enter** selects the focused option (clicks it); **Space** is prevented (no select, no scroll); **Tab** closes the flyout and lets the browser continue; **Escape** closes it and restores focus to the trigger button.
+- **Status:** VERIFIED
+- **Code:** group + button `packages/components/src/TrackControlSidePanel/TrackControlSidePanel.tsx:294` (role/aria-label), `:301`–`:326` (Button, `onClick` opens flyout, `tabIndex={addButtonTabIndex}`), `:184` (`useTabOrder('add-track')`); flyout `packages/components/src/AddTrackFlyout/AddTrackFlyout.tsx:100` (Escape+restore), `:117` (auto-focus first), `:139` (arrow wrap), `:155` (Enter select), `:161` (Space prevent), `:165` (Tab close)
+- **Profile-gated:** flat → button gets `tabIndex=0` (still one stop). Flyout nav unchanged. (Undocumented in the four docs.)
 
 ### Application header menubar — arrow nav, WINDOWS variant only
 - **Behaviour:** In the Windows variant the menu bar is `role="menubar"`; ArrowRight/Down = next item, ArrowLeft/Up = previous (both wrap); Tab/Shift+Tab pass through; roving tabIndex (first item = `file-menu`=1, rest -1; flat → all get the menu tabIndex). The **macOS variant renders no menu bar** (traffic lights + app name only). `os` comes from `preferences.operatingSystem`.
@@ -313,7 +320,16 @@
 - **Status:** VERIFIED (that these IDs/groups are wired); per-control detail RESOLVED (spot-checked)
 - **Code:** `packages/components/src/PreferencesModal/PreferencesModal.tsx:132` (content), `:162` (dialog-footer); field wrapper `packages/components/src/PreferencesModal/TabGroupField.tsx:37`; profile groups `packages/core/src/accessibility/profiles.ts:88`
 - **Profile-gated:** flat → sequential.
-- **Note (spot-check):** The `dialog-footer` IS roving — live it showed "Reset preferences" `tabIndex=0`, "Cancel"/"OK" `tabIndex=-1`, and ArrowRight cycled Reset → Cancel → OK. The content-area controls are sequential (`tabIndex=0` in DOM order — sampled: language buttons, path input, Browse, checkboxes). The left-hand section nav items are all `role="tab"`, `tabIndex=0`. (Like the ExportModal, Escape did not close the Preferences modal in the live app; it closes via the DialogHeader controls / Cancel.)
+- **Note (spot-check):** The `dialog-footer` IS roving — live it showed "Reset preferences" `tabIndex=0`, "Cancel"/"OK" `tabIndex=-1`, and ArrowRight cycled Reset → Cancel → OK. The content-area controls are sequential (`tabIndex=0` in DOM order — sampled: language buttons, path input, Browse, checkboxes). The left-hand section nav items are all `role="tab"`, `tabIndex=0`. (**Correction — code wins over the earlier live spot-check:** the PreferencesModal renders inside the shared `Dialog` shell, which registers a capture-phase Escape handler that calls `onClose` (`Dialog.tsx:170`–`183`, `closeOnEscape` defaults `true`, `onClose` wired at `AppDialogs.tsx:678`). The app-level Escape handler is bubble-phase (`useKeyboardShortcuts.ts:916`), so the Dialog's capture handler wins and `stopImmediatePropagation` blocks the cascade. **Escape DOES close the Preferences modal.** The earlier "Escape did not close" note came from unreliable synthetic dispatch and is superseded — see the "Modal focus & close behaviour" entry below. Unlike the ExportModal, overlay-click does NOT close Preferences (`closeOnClickOutside={false}`, `PreferencesModal.tsx:115`).)
+
+### Modal focus & close behaviour — the two modals DIFFER (different shells)
+- **Behaviour:** The ExportModal and PreferencesModal do **not** behave the same on open/close, because they use different shells:
+  - **ExportModal** renders its **own bespoke overlay** (`.export-modal__overlay`, `onClick={onClose}`) — it does **not** use the `Dialog` shell and does **not** call `useFocusTrap`. Therefore: **no programmatic focus-on-open** (focus stays wherever it was until the user Tabs in), **no focus trap** (Tab can leave the modal — nothing wraps it), and **no Escape handler** (Escape does not close it). It closes only via **overlay-click**, the **DialogHeader X**, or **Cancel**.
+  - **PreferencesModal** renders inside the shared **`Dialog`** shell, which calls **`useFocusTrap(dialogRef, isOpen)`**. So on open it **focuses the first tabbable element** (marked `data-focus-method="auto"` to suppress the visible outline), and **Tab is trapped/contained**: Tab on the last element wraps to the first, Shift+Tab on the first wraps to the last. It **closes on Escape** (Dialog `closeOnEscape` defaults `true`), on the **DialogHeader X**, and on **Cancel**; it does **not** close on overlay-click (`closeOnClickOutside={false}`).
+- **Status:** VERIFIED (code)
+- **Code:** ExportModal bespoke overlay `packages/components/src/ExportModal/ExportModal.tsx:449` (overlay `onClick={onClose}`), `:455` (DialogHeader X), `:1123` (Cancel); imports `DialogHeader` only, no `Dialog`/`useFocusTrap`. PreferencesModal shell `packages/components/src/PreferencesModal/PreferencesModal.tsx:107` (`<Dialog … closeOnClickOutside={false}>`, `:115`); Dialog focus trap `packages/components/src/Dialog/Dialog.tsx:149` (`useFocusTrap`), Escape close `:170`–`183`; trap impl `packages/components/src/hooks/useFocusTrap.ts:45` (Tab wrap containment) & `:70`–`88` (focus first on open, outline suppressed)
+- **Profile-gated:** no.
+- **Handbook note:** This handbook's convention is honest negatives — state plainly that the **ExportModal has no focus trap and no focus-on-open**, and that the two modals differ.
 
 ### Cmd/Ctrl+, — open Preferences
 - **Behaviour:** Opens the preferences modal (`onOpenPreferences`), consuming the comma so the playhead-jump handler never sees it.
@@ -322,11 +338,22 @@
 - **Profile-gated:** no. (Undocumented in the four docs.)
 
 ### Context menus — Shift+F10 / ContextMenu open; menu is `role="menu"`
-- **Behaviour:** Clip and track Shift+F10/ContextMenu open the respective context menu and (per the clip/panel handlers) place it for keyboard use. Menu internals render via `Menu`/`ContextMenu` components with `role="menu"`.
-- **Status:** VERIFIED (open trigger); intra-menu arrow nav RESOLVED = VERIFIED (spot-checked)
+- **Behaviour:** Clip and track Shift+F10/ContextMenu open the respective context menu and (per the clip/panel handlers) place it for keyboard use. Menu internals render via the `ContextMenu` component (`role="menu"`) with `ContextMenuItem` children (`role="menuitem"`, `tabIndex=0`).
+- **Status:** VERIFIED (open trigger); intra-menu arrow nav VERIFIED (code + spot-check)
 - **Code:** clip `packages/components/src/Track/TrackNew.tsx:645`; panel `packages/components/src/TrackControlPanel/TrackControlPanel.tsx:450`
 - **Profile-gated:** no.
-- **Note (spot-check):** Shift+F10 on a focused clip opened the `role="menu"` `.clip-context-menu` (14 `role="menuitem"` items). With focus on a menu item, ArrowDown stepped Rename clip → Clip color → Cut → Copy and ArrowUp reversed — intra-menu arrow navigation works. (Under synthetic keyboard open, focus did not auto-enter the menu; a real render likely focuses the first item.)
+
+### Context menus — full keyboard model (auto-focus, activation, wrap, Home/End, Escape, Tab)
+- **Behaviour, code-verified:**
+  - **Auto-focus first item on open:** `ContextMenu` defaults `autoFocus=true` and, on open, focuses the first `[role="menuitem"]` (via `setTimeout(…,0)` after render/position). This upgrades the earlier "a real render likely focuses the first item" note to CONFIRMED — the component always focuses item 1 when opened.
+  - **ArrowDown / ArrowUp** step to next / previous item **with wrap** (last→first, first→last), scoped to direct `:scope > [role="menuitem"]:not([aria-disabled="true"])` children so submenus stay isolated.
+  - **Home / End** jump to the first / last item.
+  - **Enter / Space** on a (leaf) item activate it → `onClick()` then `onClose()`. On a submenu parent, **Enter or ArrowRight** opens the submenu and focuses its first item; **ArrowLeft** closes the submenu and returns focus to the parent.
+  - **Escape** closes the menu (capture-phase listener + `stopImmediatePropagation`, so it beats the app-level Escape cascade) **and restores focus to the trigger element** captured when the menu opened.
+  - **Tab / Shift+Tab** closes the menu and lets focus move outside (does not restore to trigger).
+- **Status:** VERIFIED (code) — matches the live spot-check (Shift+F10 opened the 14-item clip `role="menu"`; ArrowDown/Up stepped Rename clip → Clip color → Cut → Copy and back).
+- **Code:** open + trigger capture `packages/components/src/ContextMenu/ContextMenu.tsx:75` (store trigger), auto-focus first `:82`, Escape close + focus-restore `:142`–`:155` (restore `:150`), Tab close `:157`, ArrowDown/Up wrap `:165`–`:183`, Home/End `:185`–`:193`; item activation `packages/components/src/ContextMenuItem/ContextMenuItem.tsx:237` (Enter/Space → onClick+onClose), submenu open/close `:210`–`:234`
+- **Profile-gated:** no (menu is its own keyboard layer, not profile-driven).
 
 ---
 
@@ -348,7 +375,7 @@
 | Global | Cmd/Ctrl+Shift+I | Split every track at playhead | `useKeyboardShortcuts.ts:810` |
 | Global | Cmd/Ctrl+Z / Shift+Z / Y | Undo / Redo | `useKeyboardShortcuts.ts:816` |
 | Global | Cmd/Ctrl+C / X / V | Copy / Cut / Paste clips | `useKeyboardShortcuts.ts:828` |
-| Global | Cmd/Ctrl+T / Shift+T / Shift+L | New mono / stereo / label track | `useKeyboardShortcuts.ts:855` |
+| Global | Cmd/Ctrl+T / Cmd/Ctrl+Shift+T / Cmd/Ctrl+Shift+L | New mono / stereo / label track (the Cmd/Ctrl prefix is required on all three; stereo/label add Shift) | `useKeyboardShortcuts.ts:855` (guard `(e.metaKey \|\| e.ctrlKey) && (t/T \|\| ((l/L) && shift))`); mapping `handlers/trackCreationHandlers.ts:31` (mono/stereo, shift→stereo) & `:46` (label, requires shift) |
 | Global | Cmd/Ctrl+D | Duplicate focused clip(s)/track(s) | `useKeyboardShortcuts.ts:861` |
 | Global | Cmd/Ctrl+W | Close (delete) focused track | `useKeyboardShortcuts.ts:867` |
 | Global | Cmd/Ctrl+Delete | Delete focused clip (skips cascade) | `useKeyboardShortcuts.ts:886` |

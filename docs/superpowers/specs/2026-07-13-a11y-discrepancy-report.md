@@ -7,6 +7,17 @@
 > `accessibility-architecture.md` (AA), `export-modal-accessibility.md` (EMA),
 > plus `CLAUDE.md`.
 
+## Executive summary
+
+We cross-checked roughly three dozen documented keyboard/accessibility claims (the 10 planned conflicts plus ~15 additional discrepancies) against the live prototype source. Well over half were wrong, stale, or misleading — the four legacy docs had drifted badly from the code. Verdicts: 5 doc claims describe behaviour that simply **does not exist** (NOT-FOUND: F2 rename on clips/labels, `Cmd+Shift+,`/`.` selection-reduce, clip-trim on Shift+Arrow, clip cycling on ArrowLeft/Right); the label keyboard move/trim family and its whole profile-gating config are **dead code**; and several tab-order/stride/`wrap` values are simply stale.
+
+The three that matter most for a reader relying on these docs:
+1. **Clip edge editing is on the bracket keys `[` `]` (± Shift, ± Cmd), not Shift+Arrow** — every legacy doc had the wrong keys, so a user following them would fail to trim a clip at all.
+2. **The WCAG-flat profile does NOT disable clip shortcuts.** The `keyboardShortcuts` gating config is inert (read only by dead code); clip move/trim/stretch/delete run identically in both profiles. Flat mode changes only tabIndex/arrow-roving.
+3. **Track tab-order is stride-4** (container / unused / clips / per-track ruler), and the side control panel is `tabIndex=-1` (not a native tab stop) — two different legacy docs each guessed a different, wrong stride.
+
+A recurring footgun worth flagging: `getProfileById` silently falls back to the **flat** profile (not AU4) on an unknown id — which is exactly how test wrappers passing a bad id lose tab-group behaviour without any error.
+
 ## The 10 planned conflicts — explicit verdicts
 
 | # | Claim | Source doc(s) | What the code actually does | Verdict |
@@ -33,7 +44,7 @@
 | Export-modal groups use `wrap:false` | EMA | AU4 profile sets these groups `wrap:true`. (`profiles.ts:165-197`) | Doc WRONG |
 | Application-header menu ArrowLeft/Right only | KHM, AA | Menubar handles all four arrows (Up/Down too) with wrap, and exists **only** in the Windows `os` variant; macOS renders no menubar. (`ApplicationHeader.tsx:159,183`) | Doc incomplete |
 | TVN "Actual Tab Flow Audit" (Feb 2026) | TVN | Stale: predates stride-4 layout, per-track rulers (tabOrder 99/… `base+3`), and `project-toolbar-history`; shows panels as tab stops though the live side-panel is `tabIndex=-1`. | Audit STALE |
-| Unknown-profile-id fallback | (implicit) | `getProfileById` falls back to **WCAG_FLAT**, not AU4 — a real footfun for test wrappers passing a bad id. (`profiles.ts:439`) | Note for handbook |
+| Unknown-profile-id fallback | (implicit) | `getProfileById` falls back to **WCAG_FLAT**, not AU4 — a real footgun for test wrappers passing a bad id. (`profiles.ts:439`) | Note for handbook |
 | Track panel: **ArrowRight → first child / ArrowLeft → last child** when panel focused | Inventory Task-1 entry (self-correction) | **WRONG.** When the panel is focused, ArrowLeft/Right are no-ops — the `isPanelFocused` branch at `TrackControlPanel.tsx:530` returns before the first-child branch at `:583` can run (`:583` is dead for the panel-focused case). Entry INTO the children is via **Tab** (→ icon button, `:491`). Child-focused arrows DO cycle children with wrap (`:597`). Spot-checked live 2026-07-13: panel-focused ArrowLeft/Right left focus on the panel; Tab moved to the icon child; child ArrowRight cycled icon→rename→menu→Pan. | Inventory entry CORRECTED |
 | Track panel: **Escape (child) → returns to panel** | KHM/AA + Task-1 entry | Nuanced: the panel's Escape handler (`:466`) focuses the panel but does not `stopPropagation`, so the global Escape cascade (`useKeyboardShortcuts.ts:188`) then re-anchors focus to the `.track` canvas container when a `focusedTrackIndex` is set. Spot-checked live: Escape from a panel child landed on the `.track` container, not the panel. | Net resting place = track container |
 
