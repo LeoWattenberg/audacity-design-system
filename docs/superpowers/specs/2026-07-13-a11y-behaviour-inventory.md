@@ -216,7 +216,7 @@
 ### Labels — keyboard move/trim (Cmd+Arrow, Shift/Cmd+Shift+Arrow) is DEAD CODE
 - **Behaviour:** `useLabelKeyboardHandling.ts` implements Cmd+Arrow move and Shift/Cmd+Shift+Arrow region-edge trim, gated on the (also-dead) `keyboardShortcuts.labels` config — but it is only exported from barrels and imported by nothing in the render tree. The live `LabelRenderer.tsx` has no `onKeyDown`. These label shortcuts do not run.
 - **Status:** DEAD-CODE
-- **Code:** impl `packages/components/src/hooks/useLabelKeyboardHandling.ts:53`; only references are barrel exports (`packages/components/src/hooks/index.ts:14`, `packages/components/src/index.ts:120`) — no render-tree import
+- **Code:** impl `packages/components/src/hooks/useLabelKeyboardHandling.ts:53`; only references are barrel exports (`packages/components/src/hooks/index.ts:14`, re-exported to the package root via `packages/components/src/index.ts:163` — `export * from './hooks';`) — no render-tree import
 - **Profile-gated:** n/a (never runs). (Resolves Conflict 2.)
 
 ### Labels — Delete/Backspace = delete selected labels (live)
