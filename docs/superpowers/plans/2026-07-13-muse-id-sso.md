@@ -120,6 +120,40 @@ Binding: spec §"Using Muse ID to enter a service + the linking ladder" and §"D
 - [ ] Recognition cards render masked email + non-financial detail; balance only on the post-link account card. Update any test/fixture asserting `wallet $42.50` pre-link.
 - [ ] Tests: rung-3 happy path, no-account-at-that-email, and a disclosure assertion that no monetary value appears pre-link.
 
+## Phase 6 — browser OAuth flow (Muse ID on services' own web logins)
+
+Binding: spec §"Phase 6 — the browser OAuth flow". Reference implementation for the whole flow is moose-hub's existing provider-side OAuth (`app/authorize/`, `lib/oauth/{authorize,pkce,tokens,bearer}.ts`, `app/api/oauth/token` authorization_code branch) — READ IT before building muse-id's.
+
+### Task 6.1: muse-id becomes an OAuth Identity Provider
+
+Repo /Users/alexdawsonsmac/Documents/webdev/muse-id (push-safe).
+- [ ] `AuthCode` model + migration (mirror moose-hub's: code PK, userId, clientId, redirectUri, scope, codeChallenge, codeChallengeMethod, expiresAt, consumedAt). Copy `lib/oauth/authorize.ts` + `lib/oauth/pkce.ts` from moose-hub, adapting to muse-id's helpers.
+- [ ] Seed: add OAuth clients `musehub-web` (redirect `http://localhost:3000/oauth/museid/callback`) and `adieu-web` (`http://localhost:3001/oauth/museid/callback`); keep `audacity-web-demo`.
+- [ ] `GET /authorize` page + consent server action: validate params; no session → redirect to muse-id sign-in with `next`; session → **streamlined first-party consent** ("Continue to {clientName} as {name}" + Cancel); on continue mint AuthCode (60s) → redirect `redirect_uri?code&state`; on cancel → `redirect_uri?error=access_denied`.
+- [ ] Extend `POST /api/oauth/token`: add `grant_type=authorization_code` (transactional single-use consume, PKCE S256 verify, client+redirect_uri match, mint tokens) beside the refresh grant.
+- [ ] Tests (house style, real Postgres): authorize validation (bad client/redirect/method → error), code issuance on consent, code exchange happy + reuse/expiry/verifier-mismatch/redirect-mismatch, unknown client. Existing 133 stay green.
+- [ ] Gates: `pnpm test`, `pnpm build`, `npx tsc --noEmit`. Commit + push.
+
+### Task 6.2: moose-hub web login → OAuth client of muse-id
+
+Repo /Users/alexdawsonsmac/Documents/webdev/moose-hub, branch `feat/muse-exchange`. **NEVER PUSH.**
+- [ ] `app/login/page.tsx`: add "Continue with Muse ID" (primary) above the legacy form. Clicking → server action/route that generates a PKCE verifier + state (short-lived httpOnly cookie), redirects to `MUSE_ID_BASE_URL/authorize?client_id=musehub-web&redirect_uri=…&code_challenge=…&state=…`.
+- [ ] `app/oauth/museid/callback/route.ts`: verify state cookie, exchange code→muse tokens at muse-id's token endpoint (with the verifier), then resolve the local user via the SAME logic `muse-exchange` already uses (extract that resolution into a shared lib function if not already, and reuse — do NOT fork the ladder), set the `moose-hub-session` iron-session cookie, redirect to `/` signed in. Legacy password login untouched (its tests stay green).
+- [ ] Env: `MUSE_ID_BASE_URL` already present (from Phase 2). Add the `musehub-web` client_id constant.
+- [ ] Tests: callback happy path (mock muse-id token+introspect), state mismatch → rejected, existing account linked vs JIT provision, legacy login still works. `pnpm test` (85 baseline) + `pnpm build`. Commit, **no push**.
+
+### Task 6.3: adieu web login → OAuth client of muse-id
+
+Repo /Users/alexdawsonsmac/Documents/webdev/adieu, branch `feat/muse-exchange`. **NEVER PUSH.** Same as 6.2 (client_id `adieu-web`, redirect on :3001, `adieu-session` cookie, scope `profile projects:write`). Tests (96 baseline) + build. Commit, no push.
+
+### Task 6.4: DAW browser-first Muse ID sign-in (sandbox)
+
+Prototype repo, branch `feat/muse-id`.
+- [ ] Muse ID auth dialog sign-IN step: add "Continue with Muse ID" that redirects the browser to `museid/authorize?client_id=audacity-web-demo&redirect_uri=<origin>/oauth/callback&…PKCE…state`. Keep the in-app email/password as fallback.
+- [ ] Wire `components/OAuthCallback.tsx` (already lazy-loaded in App.tsx) to handle the muse-id return: exchange code→muse tokens, establish the Muse session in MuseIdContext, exchange+adopt both services. (Read the existing OAuthCallback — it was built for moose-hub's OAuth; extend/branch it for the muse-id issuer.)
+- [ ] Tests at the museIdMock boundary for the redirect-initiation + callback-handling; existing suite green.
+- [ ] Gates (4) + commit, no push.
+
 ### Task 4: E2E, docs, rollout gate
 
 - [ ] Local E2E attempt: run all three services locally (check sibling READMEs/local DB availability; if local Postgres isn't available, document and rely on suites) + sandbox dev server; controller drives the demo script in the preview browser.

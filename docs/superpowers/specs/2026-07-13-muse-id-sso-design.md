@@ -120,6 +120,24 @@ Data model (Prisma): `User` (id cuid, email unique, name, avatarUrl?, **password
 - Global sign-out: Muse sign-out revokes muse tokens AND calls both services' existing revoke/clears both legacy stores.
 - Legacy dialogs (`AdieuAuthDialog`, wallet `AuthDialog`) remain reachable behind a debug toggle (regression path + demo contrast) but the primary CTA everywhere becomes "Continue with Muse ID".
 
+### Phase 6 — the browser OAuth flow: Muse ID on the services' OWN web login pages (amended 2026-07-20, user decision "I need to walk through the ENTIRE workflow")
+
+The in-app (DAW) side of SSO is built via token-exchange. The WEB side — musehub.com's and audio.com's own login pages offering "Continue with Muse ID" — needs the real OAuth authorization-code + PKCE browser redirect (a web page cannot use the in-app exchange). This is the deferred "browser-first sign-in" / RFC 8252 half.
+
+**muse-id becomes a real OAuth Identity Provider:**
+- New `AuthCode` model + migration; copy `lib/oauth/{authorize.ts, pkce.ts}` from moose-hub (the proven reference — muse-id already has the sibling tokens.ts/bearer.ts).
+- `GET /authorize` page: validates client_id/redirect_uri/PKCE(S256)/response_type=code against registered clients; if no muse session → send to muse-id sign-in with `next`; if session → show a **streamlined first-party consent** (user decision): "Continue to MuseHub as Alex" / "Continue to audio.com as Alex" — a single continue button + a cancel, NOT a scope-by-scope third-party consent screen (these are all Muse's own properties; consent screens are for third parties). On continue → mint AuthCode (60s TTL) → redirect back with code+state.
+- Extend `POST /api/oauth/token` to handle `grant_type=authorization_code` (single-use code consume in a transaction, PKCE verifyChallenge, client+redirect match) alongside the existing refresh grant.
+- Seed OAuth clients: `musehub-web` (redirect `http://localhost:3000/oauth/museid/callback`) and `adieu-web` (`http://localhost:3001/oauth/museid/callback`); keep `audacity-web-demo` (redirect `http://localhost:5173/oauth/callback`) for the DAW browser-first path.
+
+**Each service's web login page (moose-hub, adieu) becomes an OAuth client of muse-id:**
+- `/login` page gains "Continue with Muse ID" (primary) above the legacy form (mirrors the in-app dialog's hierarchy). Clicking it starts the redirect: generate PKCE verifier (store in a short-lived httpOnly cookie/state), redirect to `museid/authorize`.
+- New callback route `/oauth/museid/callback`: verify state, exchange code→muse tokens at `museid/api/oauth/token`, introspect/resolve the local user via the SAME resolution logic as `/api/auth/muse-exchange` (museId match → email match → JIT provision; reuse, don't fork), set the service's own iron-session cookie, redirect to the app home signed in. Legacy `/login` password path untouched.
+
+**DAW browser-first sign-in (sandbox):** the Muse ID auth dialog's sign-IN path gains "Continue with Muse ID" that redirects the browser to `museid/authorize?client_id=audacity-web-demo&redirect_uri=…5173/oauth/callback`; the EXISTING `components/OAuthCallback.tsx` handles the return (code→muse tokens→establish Muse session→exchange+adopt both services). In-app create/password path stays as the fallback.
+
+**Walkthrough this enables (the "entire workflow"):** create a Muse ID in the DAW → open musehub.com → "Continue with Muse ID" → museid consent → back on musehub.com signed in with the same identity; and the reverse (browser-first Muse ID sign-in from the DAW).
+
 ## Security rules (bind all tasks)
 
 - No account existence/details disclosure before email verification (identical `/api/auth/start` responses; discovery only in `/api/auth/verify` success).
