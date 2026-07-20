@@ -6,7 +6,8 @@ import { MuseWallet } from './wallet/MuseWallet';
 import { UserMenu } from './wallet/UserMenu';
 import { SignInRequiredPrompt } from './wallet/SignInRequiredPrompt';
 import { useSignedIn, useMuseHub } from '../contexts/MuseHubContext';
-import { getPlugins, type MuseHubPlugin } from '../lib/musehub-client';
+import { useMuseId } from '../contexts/MuseIdContext';
+import { getPlugins, getAccessToken as getMuseHubAccessToken, type MuseHubPlugin } from '../lib/musehub-client';
 import './MarketplaceModal.css';
 
 const DEFAULT_WIDTH = 920;
@@ -177,7 +178,24 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
     resumeActiveInstall,
     cancelActiveInstall,
     installerWizardEffect,
+    openAuthDialog: openMuseHubAuthDialog,
   } = useMuseHub();
+  const museId = useMuseId();
+  const [linkingMuseHub, setLinkingMuseHub] = useState(false);
+
+  // Deferred-link prompt (Task 3.2b item 4): only when Muse ID is signed in
+  // AND MuseHub isn't linked yet — distinct from the plain "sign in" case,
+  // since the user already has an identity, just not this service linked.
+  const showMuseHubLinkPrompt = museId.signedIn && !museId.linkedServices.includes('moose-hub') && !signedIn;
+  const handleLinkMuseHub = () => {
+    const legacyToken = getMuseHubAccessToken();
+    if (legacyToken) {
+      setLinkingMuseHub(true);
+      museId.linkService('moose-hub', legacyToken).finally(() => setLinkingMuseHub(false));
+      return;
+    }
+    openMuseHubAuthDialog('sign-in');
+  };
   // Footer band is only the download progress. When the download finishes
   // the installer wizard pops automatically and takes over the screen, so
   // the footer hides without any user action in between.
@@ -368,6 +386,20 @@ export const MarketplaceModal: React.FC<MarketplaceModalProps> = ({
             </svg>
           </button>
         </header>
+
+        {showMuseHubLinkPrompt && (
+          <div className="mp-link-prompt" role="status">
+            <span>Have an existing MuseHub account? Link it to your Muse ID to see your wallet and library here.</span>
+            <button
+              type="button"
+              className="mp-link-prompt__btn"
+              onClick={handleLinkMuseHub}
+              disabled={linkingMuseHub}
+            >
+              {linkingMuseHub ? 'Linking…' : 'Link MuseHub'}
+            </button>
+          </div>
+        )}
 
         <div className="mp-body">
           <aside className="mp-sidebar">

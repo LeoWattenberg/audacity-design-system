@@ -119,6 +119,14 @@ export interface MuseIdMockControls {
   /** Pre-seeds an existing service account so discovery/email-match linking
    *  has something to find. */
   seedServiceUser(service: ServiceName, input: { email: string; id?: string; name: string }): void;
+  /** Mints a valid `service`-kind access token for `email` WITHOUT going
+   *  through `/api/auth/muse-exchange` — i.e. without marking the service
+   *  linked at muse-id. Simulates "the user already has a live legacy
+   *  {service} session" (as a real OAuth/password sign-in would produce)
+   *  so tests can exercise the session-proof Link button (MuseIdAccountsPage
+   *  Task 3.2b) starting from an unlinked-but-signed-in state. Creates the
+   *  service user record if one doesn't already exist. */
+  seedServiceAccessToken(service: ServiceName, email: string): string;
   /** Forces the NEXT request whose URL contains `urlIncludes` to 500. One-
    *  shot — consumed on first match. */
   failNext(urlIncludes: string): void;
@@ -394,6 +402,13 @@ export function createMuseIdMock(): MuseIdMockControls {
     seedServiceUser(service, input) {
       const email = input.email.toLowerCase();
       state.serviceUsers[service].set(email, { id: input.id ?? nextId(`${service}-user`), email, name: input.name });
+    },
+    seedServiceAccessToken(service, email) {
+      const normalized = email.toLowerCase();
+      if (!state.serviceUsers[service].has(normalized)) {
+        state.serviceUsers[service].set(normalized, { id: nextId(`${service}-user`), email: normalized, name: normalized });
+      }
+      return mintTokens(service, normalized).access_token;
     },
     failNext(urlIncludes) {
       state.failing.add(urlIncludes);

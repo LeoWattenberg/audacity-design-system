@@ -1,0 +1,244 @@
+/* Muse ID account section rendered inside Preferences → Accounts. Mirrors
+   the layout conventions of wallet/MuseHubAccountSection.css (same card
+   chrome, button styles, and preferences-page CSS variables) so the two
+   surfaces read as one design system even though this one now owns the
+   page. */
+
+.museid-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.museid-accounts__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.museid-accounts__header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--preferences-text, #1a1a1a);
+}
+
+.museid-accounts__lead {
+  margin: 0;
+  font-size: 13px;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.6));
+  line-height: 1.45;
+}
+
+.museid-accounts__card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__card {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.museid-accounts__identity {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.museid-accounts__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #B98CFF 0%, #8A5CD6 100%);
+  background-size: cover;
+  background-position: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.museid-accounts__identity-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.museid-accounts__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--preferences-text, #1a1a1a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.museid-accounts__email {
+  font-size: 12px;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.55));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.museid-accounts__signed-out-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.65));
+  line-height: 1.45;
+}
+
+.museid-accounts__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.museid-accounts__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.museid-accounts__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.museid-accounts__btn--primary {
+  background: #B98CFF;
+  color: #1B0F2E;
+}
+
+.museid-accounts__btn--primary:hover { background: #C9A2FF; }
+
+.museid-accounts__btn--ghost {
+  background: transparent;
+  border-color: rgba(0, 0, 0, 0.18);
+  color: var(--preferences-text, #1a1a1a);
+}
+
+.museid-accounts__btn--ghost:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.32);
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__btn--ghost {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #f3f4f6;
+  }
+
+  .museid-accounts__btn--ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.32);
+  }
+}
+
+.museid-accounts__services {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.museid-accounts__services-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.55));
+}
+
+.museid-accounts__service-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__service-row {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.museid-accounts__service-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.museid-accounts__service-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--preferences-text, #1a1a1a);
+}
+
+.museid-accounts__service-summary {
+  font-size: 12px;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.6));
+}
+
+.museid-accounts__service-actions {
+  flex-shrink: 0;
+}
+
+.museid-accounts__error {
+  margin: 0;
+  font-size: 12px;
+  color: #d64545;
+}
+
+.museid-accounts__legacy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__legacy {
+    border-top-color: rgba(255, 255, 255, 0.14);
+  }
+}
+
+.museid-accounts__legacy-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.5));
+}

@@ -62,6 +62,13 @@ export interface DebugPanelProps {
   // Track selection model (classic vs follows-focus)
   trackSelectionMode: 'classic' | 'follows-focus';
   onTrackSelectionModeChange: (value: 'classic' | 'follows-focus') => void;
+
+  // Muse ID — legacy per-service sign-in dialogs (wallet AuthDialog /
+  // AdieuAuthDialog). "Continue with Muse ID" is the primary CTA everywhere;
+  // this surfaces the pre-Muse-ID entry points too, for regression testing
+  // and demo contrast (see docs/superpowers/specs/2026-07-13-muse-id-sso-design.md).
+  legacyAuthDialogsEnabled: boolean;
+  onLegacyAuthDialogsEnabledChange: (value: boolean) => void;
 }
 
 export function DebugPanel({
@@ -94,6 +101,8 @@ export function DebugPanel({
   onShowMixerChange,
   trackSelectionMode,
   onTrackSelectionModeChange,
+  legacyAuthDialogsEnabled,
+  onLegacyAuthDialogsEnabledChange,
 }: DebugPanelProps) {
   return (
     <Dialog
@@ -378,6 +387,25 @@ export function DebugPanel({
             label="Show mixer"
             checked={showMixer}
             onChange={onShowMixerChange}
+          />
+        </div>
+
+        {/* Muse ID Section */}
+        <div>
+          <h3 style={{
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '14px',
+            fontWeight: 600,
+            lineHeight: '20px',
+            color: '#14151a',
+            margin: '0 0 12px 0',
+          }}>
+            Muse ID
+          </h3>
+          <LabeledCheckbox
+            label="Show legacy sign-in dialogs (MuseHub / audio.com)"
+            checked={legacyAuthDialogsEnabled}
+            onChange={onLegacyAuthDialogsEnabledChange}
           />
         </div>
 

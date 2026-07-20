@@ -140,6 +140,19 @@ interface MuseIdContextValue {
   openAuthDialog: (mode: 'sign-up' | 'sign-in') => void;
   /** Close the MuseIdAuthDialog. No-op if already closed. */
   closeAuthDialog: () => void;
+
+  // ---- Task 3.2b: legacy-dialog debug toggle ------------------------------
+  /** Debug-only escape hatch (Debug panel → "Muse ID" section). "Continue
+   *  with Muse ID" is the primary CTA everywhere per the design spec; when
+   *  this is true, account surfaces ALSO surface the pre-Muse-ID legacy
+   *  sign-in entry points (wallet AuthDialog / AdieuAuthDialog) as a visible
+   *  alternative — regression path + demo contrast. Session-only (not
+   *  persisted), defaults to false so Muse ID stays primary out of the box.
+   *  Linking flows that inherently need a live legacy session (session-proof
+   *  linking) are NOT gated by this — they open the legacy dialog regardless,
+   *  since that IS the linking mechanism, not a legacy fallback. */
+  legacyAuthDialogsEnabled: boolean;
+  setLegacyAuthDialogsEnabled: (value: boolean) => void;
 }
 
 const MuseIdContext = createContext<MuseIdContextValue | null>(null);
@@ -392,6 +405,8 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
   const closeAuthDialog = useCallback(() => setAuthDialog('closed'), []);
 
+  const [legacyAuthDialogsEnabled, setLegacyAuthDialogsEnabled] = useState(false);
+
   const value = useMemo<MuseIdContextValue>(
     () => ({
       signedIn,
@@ -410,6 +425,8 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
       authDialog,
       openAuthDialog,
       closeAuthDialog,
+      legacyAuthDialogsEnabled,
+      setLegacyAuthDialogsEnabled,
     }),
     [
       signedIn,
@@ -428,6 +445,7 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
       authDialog,
       openAuthDialog,
       closeAuthDialog,
+      legacyAuthDialogsEnabled,
     ],
   );
 

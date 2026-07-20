@@ -5,6 +5,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMuseHub, useUser } from '../../contexts/MuseHubContext';
+import { useMuseId } from '../../contexts/MuseIdContext';
 import './UserMenu.css';
 
 const POPOVER_WIDTH = 260;
@@ -22,6 +23,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 }) => {
   const user = useUser();
   const { signOut } = useMuseHub();
+  const museId = useMuseId();
   const [open, setOpen] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -113,7 +115,11 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         role="menuitem"
         onClick={() => {
           setOpen(false);
-          signOut();
+          // MuseHub may be signed in as a linked service under a Muse ID —
+          // in that case sign-out should be global (all three sessions end)
+          // rather than leaving Muse ID/adieu signed in behind it.
+          if (museId.signedIn) void museId.signOutEverywhere();
+          else signOut();
         }}
       >
         Sign Out

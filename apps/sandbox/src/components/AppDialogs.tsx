@@ -11,9 +11,10 @@ import { MissingPluginsModal } from './MissingPluginsModal';
 import { generateWaveform } from '../utils/waveformGenerator';
 import { availableCommands } from '../data/commands';
 import { useDialogs } from '../contexts/DialogContext';
-import { MuseHubAccountSection } from './wallet/MuseHubAccountSection';
+import { MuseIdAccountsPage } from './museid/MuseIdAccountsPage';
 import { useContextMenus } from '../contexts/ContextMenuContext';
 import { useAdieu, SignInCancelledError } from '../contexts/AdieuContext';
+import { useMuseId } from '../contexts/MuseIdContext';
 import {
   saveProject as adieuSaveProject,
   ADIEU_BASE,
@@ -137,6 +138,7 @@ export function AppDialogs(props: AppDialogsProps) {
     signOut: adieuSignOut,
     refreshProjects: adieuRefreshProjects,
   } = useAdieu();
+  const { legacyAuthDialogsEnabled, setLegacyAuthDialogsEnabled } = useMuseId();
 
   // B1 — "Save as a new project" checkbox state for the Save-to-Cloud dialog.
   // Reset whenever the dialog closes so it doesn't leak across opens.
@@ -688,7 +690,7 @@ export function AppDialogs(props: AppDialogsProps) {
           dialogs.setIsPreferencesModalOpen(false);
           dialogs.setIsPluginManagerOpen(true);
         }}
-        accountsContent={<MuseHubAccountSection />}
+        accountsContent={<MuseIdAccountsPage />}
       />
 
       {/* Plugin Browser Dialog */}
@@ -1160,6 +1162,8 @@ export function AppDialogs(props: AppDialogsProps) {
         onShowMixerChange={setShowMixer}
         trackSelectionMode={trackSelectionMode}
         onTrackSelectionModeChange={(mode) => updatePreference('trackSelectionMode', mode)}
+        legacyAuthDialogsEnabled={legacyAuthDialogsEnabled}
+        onLegacyAuthDialogsEnabledChange={setLegacyAuthDialogsEnabled}
       />
     </>
   );

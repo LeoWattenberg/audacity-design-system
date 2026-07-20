@@ -33,8 +33,9 @@ const OAuthCallback = React.lazy(() =>
 import { RecordingManager } from './utils/RecordingManager';
 import { MuseHubProvider, useMuseHub, useInstalledEffects } from './contexts/MuseHubContext';
 import { AdieuProvider, useAdieu } from './contexts/AdieuContext';
-import { MuseIdProvider } from './contexts/MuseIdContext';
+import { MuseIdProvider, useMuseId } from './contexts/MuseIdContext';
 import { MuseHubHomeAccountCard } from './components/wallet/MuseHubHomeAccountCard';
+import { MuseIdHomeAccountCard } from './components/museid/MuseIdHomeAccountCard';
 import { useZoomControls } from './hooks/useZoomControls';
 import { useCanvasScrollSync } from './hooks/useCanvasScrollSync';
 import { usePlaybackControls } from './hooks/usePlaybackControls';
@@ -173,6 +174,12 @@ function CanvasDemoContent() {
   // Mirror the plugins' enabled/disabled state into the MuseHub context so
   // the picker context menu and slot caret menus filter disabled plugins out.
   const { syncDisabledFromList, signedIn: museHubSignedIn } = useMuseHub();
+  const {
+    signedIn: museIdSignedIn,
+    linkedServices: museIdLinkedServices,
+    legacyAuthDialogsEnabled,
+    openAuthDialog: openMuseIdAuthDialog,
+  } = useMuseId();
 
   // Cloud projects from adieu (the separate cloud-storage service).
   // AdieuContext owns the fetch + visibility-refresh; we just adapt its
@@ -817,11 +824,17 @@ function CanvasDemoContent() {
             })()}
             audioFiles={cloudAudioFiles}
             onDeleteAudioFile={(id) => setCloudAudioFiles(prev => prev.filter(f => f.id !== id))}
+            // "Continue with Muse ID" is the primary CTA everywhere per the
+            // design spec — the legacy direct-to-adieu sign-in stays reachable
+            // only when the Debug panel's "Show legacy sign-in dialogs" toggle
+            // is on (regression path + demo contrast).
             onCreateAccount={() => {
-              void adieuSignIn();
+              if (legacyAuthDialogsEnabled) void adieuSignIn();
+              else openMuseIdAuthDialog('sign-up');
             }}
             onSignIn={() => {
-              void adieuSignIn();
+              if (legacyAuthDialogsEnabled) void adieuSignIn();
+              else openMuseIdAuthDialog('sign-up');
             }}
             onSignOut={() => {
               void adieuSignOut();
@@ -841,7 +854,37 @@ function CanvasDemoContent() {
             onOpenOther={handleOpenFromComputer}
             onDeleteProject={handleDeleteProject}
             currentProjectId={currentProjectId}
-            extraAccountsSections={<MuseHubHomeAccountCard />}
+            // Once Muse ID is signed in, MuseIdHomeAccountCard's combined
+            // summary line already covers audio.com — hide the design
+            // system's own built-in card so the service isn't shown twice.
+            hideBuiltInAccountCard={museIdSignedIn}
+            extraAccountsSections={
+              <>
+                <MuseIdHomeAccountCard />
+                {legacyAuthDialogsEnabled && !museIdSignedIn && <MuseHubHomeAccountCard />}
+              </>
+            }
+            // Deferred-link prompt (Task 3.2b item 4): only when Muse ID is
+            // signed in AND audio.com isn't linked yet — the plain "not
+            // signed in" copy would be misleading (the user DOES have an
+            // identity, just not this service linked to it).
+            {...(museIdSignedIn && !museIdLinkedServices.includes('adieu')
+              ? {
+                  cloudSignedOutTitle: 'audio.com isn’t linked yet',
+                  cloudSignedOutDescription:
+                    'Have an existing audio.com account? Sign in to it, then link it to your Muse ID from Preferences → Accounts.',
+                  cloudSignedOutActions: (
+                    <>
+                      <Button variant="secondary" size="default" onClick={() => { void adieuSignIn(); }}>
+                        Sign in to audio.com
+                      </Button>
+                      <Button variant="primary" size="default" onClick={() => setIsPreferencesModalOpen(true)}>
+                        Open Preferences
+                      </Button>
+                    </>
+                  ),
+                }
+              : {})}
           />
         </div>
       ) : (
