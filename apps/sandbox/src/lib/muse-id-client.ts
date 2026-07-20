@@ -400,11 +400,20 @@ export function getUserInfo(): Promise<MuseIdUserInfo> {
 
 /** Session-proof / credential-proof linking after account creation (settings
  *  page, deferred "have an existing account?" prompts). muse-id verifies
- *  `legacyAccessToken` itself by calling the service's own userinfo. */
+ *  `legacyAccessToken` itself by calling the service's own userinfo.
+ *
+ *  `rpSynced` (Task 5.4 fix): whether muse-id's write-back call — telling
+ *  the RP which local account this link now belongs to (its own `museId`
+ *  join column) — succeeded. `false` means the muse-id-side link IS
+ *  registered but the RP wasn't told, so a later exchange's museId-match
+ *  rung won't find it yet; callers should surface this rather than treat
+ *  the link as fully connected. Optional in the type since older muse-id
+ *  deployments (and this client's own museIdMock, if not yet updated)
+ *  might omit it — callers must not assume it's always present. */
 export function link(
   service: ServiceName,
   legacyAccessToken: string,
-): Promise<{ ok: true; linked: boolean; service: ServiceName }> {
+): Promise<{ ok: true; linked: boolean; service: ServiceName; rpSynced?: boolean }> {
   return postJsonAuthed('/api/link', { service, legacy_access_token: legacyAccessToken });
 }
 
@@ -430,6 +439,11 @@ export interface LinkByEmailVerifyResult {
    *  never falls through to account creation). */
   status: 'linked' | 'no_account';
   service: ServiceName;
+  /** Task 5.4 fix: same soft-failure signal as `link()`'s `rpSynced` above —
+   *  only meaningful when `status === 'linked'`. `false` means muse-id
+   *  registered the link on its own side but couldn't tell the RP, so the
+   *  account isn't actually usable there yet. */
+  rpSynced?: boolean;
 }
 
 /** Checks the code `linkStart` sent. Throws `MuseIdAuthError` with code

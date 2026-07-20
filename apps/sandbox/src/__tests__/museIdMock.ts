@@ -53,13 +53,22 @@ interface ServiceUserRecord {
    *  rule: masked email + a non-financial summary, NEVER a monetary
    *  value). Defaults to 0 when not seeded. */
   itemCount: number;
-  /** Set by a successful `/api/link/verify` (task 5.4, rung 3) — the muse
-   *  email this service account is linked to, if any. Minimal reverse
-   *  index (this mock doesn't otherwise track WHICH service account a
-   *  muse user's `linkedServices` entry points at) that exists purely to
-   *  drive the `service_account_already_linked` conflict test; not touched
-   *  by the other linking paths (`/api/link`, muse-exchange). */
-  linkedToMuseEmail?: string;
+  /** Task 5.4 fix: models the REAL relying party's own `User.museId`
+   *  join column (moose-hub's/adieu's schema.prisma) — the muse user's
+   *  `id` this service account is bound to, if any. This is deliberately a
+   *  property of the SERVICE record (keyed by the service account's OWN
+   *  email), not a lookup keyed by the muse account's email — the whole
+   *  point of rung 3 ("different email") is that those two emails differ,
+   *  so a muse-email-keyed lookup can never model it correctly. Set by:
+   *  `/api/link/verify` and `/api/link` on a successful link (modeling
+   *  muse-id's `/api/internal/set-museid` write-back call to the RP), and
+   *  by muse-exchange itself on its own (b)/(c)/(d) resolution rungs
+   *  (modeling lib/museResolution.ts, which sets it directly). Read by
+   *  muse-exchange's rung (a) museId-match — this is the field whose
+   *  absence produced the task 5.4 bug: before the fix, nothing ever set
+   *  it for a rung-3 link, so exchange always fell through to (d)
+   *  JIT-provision, silently creating a duplicate. */
+  museId?: string;
 }
 
 interface TokenOwner {
@@ -354,13 +363,32 @@ export function createMuseIdMock(): MuseIdMockControls {
         });
       }
 
+      // Session-proof linking (rung 2): mirrors the real /api/link route —
+      // verifies the caller-supplied legacy_access_token by resolving it
+      // against THIS mock's own service access-token store (the mock's
+      // stand-in for "the RP validates its own token"), then links that
+      // resolved service account and writes back its museId (task 5.4 fix)
+      // exactly like /api/link/verify below.
       if (path === '/api/link' && method === 'POST') {
         const email = bearerEmail(state, 'muse', init);
         const user = email ? state.museUsers.get(email) : undefined;
         if (!email || !user) return jsonResponse({ error: 'invalid_token' }, 401);
-        const { service } = jsonBody<{ service: ServiceName }>(init);
+        const { service, legacy_access_token } = jsonBody<{ service: ServiceName; legacy_access_token: string }>(init);
+
+        const legacyOwner = state.accessTokens.get(legacy_access_token);
+        const su = legacyOwner && legacyOwner.kind === service ? state.serviceUsers[service].get(legacyOwner.email) : undefined;
+        if (!su) return jsonResponse({ error: 'invalid_legacy_token' }, 400);
+
+        if (su.museId && su.museId !== user.id) {
+          return jsonResponse({ error: 'service_account_already_linked' }, 409);
+        }
+        if (user.linkedServices.has(service) && su.museId !== user.id) {
+          return jsonResponse({ error: 'user_already_linked' }, 409);
+        }
+
+        su.museId = user.id; // write-back (models muse-id's /api/internal/set-museid call)
         user.linkedServices.add(service);
-        return jsonResponse({ ok: true, linked: true, service });
+        return jsonResponse({ ok: true, linked: true, service, rpSynced: true });
       }
 
       if (path === '/api/unlink' && method === 'POST') {
@@ -407,22 +435,25 @@ export function createMuseIdMock(): MuseIdMockControls {
         const su = state.serviceUsers[service].get(normalizedTarget);
         if (!su) return jsonResponse({ ok: true, status: 'no_account', service });
 
-        if (su.linkedToMuseEmail === email) {
+        if (su.museId === user.id) {
           // Idempotent: already linked to THIS muse user via this exact
-          // service account.
+          // service account. Still re-runs the write-back (harmless no-op,
+          // and self-heals a previous write-back failure) — mirrors the
+          // real /api/link/verify calling setRpMuseId on 'already_linked'
+          // too.
           user.linkedServices.add(service);
-          return jsonResponse({ ok: true, status: 'linked', service });
+          return jsonResponse({ ok: true, status: 'linked', service, rpSynced: true });
         }
         if (user.linkedServices.has(service)) {
           return jsonResponse({ error: 'user_already_linked' }, 409);
         }
-        if (su.linkedToMuseEmail) {
+        if (su.museId) {
           return jsonResponse({ error: 'service_account_already_linked' }, 409);
         }
 
-        su.linkedToMuseEmail = email;
+        su.museId = user.id; // write-back (models muse-id's /api/internal/set-museid call)
         user.linkedServices.add(service);
-        return jsonResponse({ ok: true, status: 'linked', service });
+        return jsonResponse({ ok: true, status: 'linked', service, rpSynced: true });
       }
 
       if (path === '/api/oauth/revoke' && method === 'POST') {
@@ -481,42 +512,71 @@ export function createMuseIdMock(): MuseIdMockControls {
         const museUser = museOwner && museOwner.kind === 'muse' ? state.museUsers.get(museOwner.email) : undefined;
         if (!museOwner || !museUser) return jsonResponse({ error: 'invalid_muse_token' }, 401);
 
-        // Task 5.3 (fixed in the 5.3 review follow-up, 2026-07-20): capture
-        // the resolution rung BEFORE mutating state, mirroring the REAL
-        // moose-hub/adieu `/api/auth/muse-exchange` route.ts's four-rung
-        // order (museId match -> legacy_access_token -> email match ->
-        // JIT-provision) 1:1, so the mock's accountStatus can't drift from
-        // what production actually sends — see ServiceExchangeResult's
-        // doc comment in muse-id-client.ts.
-        const alreadyLinked = museUser.linkedServices.has(service);
-        let su = state.serviceUsers[service].get(museOwner.email);
-        let accountStatus: 'linked' | 'linked-by-session' | 'matched-by-email' | 'created';
-        if (alreadyLinked) {
+        // Task 5.3/5.4: capture the resolution rung BEFORE mutating state,
+        // mirroring the REAL moose-hub/adieu `/api/auth/muse-exchange`
+        // route.ts's (via lib/museResolution.ts) four-rung order 1:1, so
+        // the mock's accountStatus can't drift from what production
+        // actually sends — see ServiceExchangeResult's doc comment in
+        // muse-id-client.ts.
+        //
+        // (a) existing museId match — scans every service account for one
+        // whose `museId` (see ServiceUserRecord's doc comment) equals THIS
+        // muse user's id. Deliberately NOT keyed by the muse account's own
+        // email (that's what the pre-fix version of this mock did, and
+        // it's exactly what made rung 3 — a DIFFERENT-email link — silently
+        // undetectable here, hiding the task 5.4 bug from every test that
+        // exercised it).
+        let su = Array.from(state.serviceUsers[service].values()).find((s) => s.museId === museUser.id);
+        // Default matches (d)'s fallback — overridden by whichever earlier
+        // rung actually resolves the account (mirrors museResolution.ts's
+        // own default-then-override structure).
+        let accountStatus: 'linked' | 'linked-by-session' | 'matched-by-email' | 'created' = 'created';
+        if (su) {
           accountStatus = 'linked';
-        } else if (su) {
-          accountStatus = 'matched-by-email';
         } else if (body.legacy_access_token) {
+          // (b) legacy_access_token proves a live legacy session — adopt
+          // that account and set its museId (mirrors museResolution.ts).
           const legacyOwner = state.accessTokens.get(body.legacy_access_token);
           const legacySu = legacyOwner && legacyOwner.kind === service
             ? state.serviceUsers[service].get(legacyOwner.email)
             : undefined;
           if (legacySu) {
             su = legacySu;
+            su.museId = museUser.id;
             accountStatus = 'linked-by-session';
-          } else {
-            accountStatus = 'created';
           }
-        } else {
-          accountStatus = 'created';
         }
         if (!su) {
-          su = { id: nextId(`${service}-user`), email: museOwner.email, name: museUser.name, avatarUrl: museUser.avatarUrl, itemCount: 0 };
+          // (c) verified email match — the service account's OWN email
+          // equals the muse account's OWN email. Only meaningful when
+          // that's genuinely the same address (rung 3's whole reason for
+          // existing is that it usually isn't).
+          const emailMatch = state.serviceUsers[service].get(museOwner.email);
+          if (emailMatch) {
+            su = emailMatch;
+            su.museId = museUser.id;
+            accountStatus = 'matched-by-email';
+          }
+        }
+        if (!su) {
+          // (d) JIT-provision.
+          su = { id: nextId(`${service}-user`), email: museOwner.email, name: museUser.name, avatarUrl: museUser.avatarUrl, itemCount: 0, museId: museUser.id };
           state.serviceUsers[service].set(museOwner.email, su);
+          accountStatus = 'created';
         }
         museUser.linkedServices.add(service);
 
+        // Mint the token under the RESOLVED account's own email, not the
+        // muse account's — they can genuinely differ (that's rung 3's
+        // whole reason for existing). Minting at museOwner.email here
+        // would silently orphan the session: every subsequent bearerEmail
+        // lookup (userinfo/wallet/library) keys off the token owner's
+        // email into `state.serviceUsers[service]`, which is keyed by the
+        // SERVICE account's own email — a mismatch 401s everything after
+        // a rung-3 (or rung-2 session-proof) exchange despite the exchange
+        // itself reporting success.
         return jsonResponse({
-          ...mintTokens(service, museOwner.email),
+          ...mintTokens(service, su.email),
           token_type: 'Bearer',
           scope: service === 'moose-hub' ? 'profile library:read wallet:write' : 'profile projects:write',
           user: { id: su.id, email: su.email, name: su.name },

@@ -44,6 +44,7 @@ import {
   complete as museIdComplete,
   signIn as museIdSignInRequest,
   getUserInfo,
+  getAccessToken,
   link as museIdLink,
   unlink as museIdUnlink,
   linkStart as museIdLinkStart,
@@ -136,9 +137,12 @@ interface MuseIdContextValue {
 
   /** Post-creation linking (settings / deferred prompts). Calls muse-id's
    *  own `/api/link` (which verifies `legacyAccessToken` against the
-   *  service itself) then re-hydrates. Does NOT itself adopt tokens for
-   *  that service — call signIn/hydrate again, or rely on the next
-   *  exchange, to pick up the newly-linked service's session. */
+   *  service itself), then — Task 5.4 fix — exchanges + adopts THIS
+   *  service's own tokens too (the same exchange signup/signin run), so
+   *  the service is actually signed in locally with real data, not just
+   *  "linked" in muse-id's directory. Re-hydrates either way. A failed
+   *  exchange is surfaced via `error`, not thrown — the muse-id-side link
+   *  already succeeded by that point. */
   linkService: (service: ServiceName, legacyAccessToken: string) => Promise<void>;
   /** Unlinks `service`: clears muse-id's own LinkedAccount row (the
    *  authoritative directory) AND that service's own museId join column
@@ -158,7 +162,16 @@ interface MuseIdContextValue {
    *  linkedServices) or `'no_account'` (ownership proven, nothing to
    *  link — nothing created). Throws MuseIdAuthError on a bad code or
    *  either of the two already-linked conflicts (see muse-id-client.ts's
-   *  linkVerify doc comment) — callers map the error code to copy. */
+   *  linkVerify doc comment) — callers map the error code to copy.
+   *
+   *  Task 5.4 fix: on `'linked'`, also exchanges + adopts this service's
+   *  own tokens (same as `linkService` above) so the service is actually
+   *  signed in locally with real data — without this, a rung-3 link (no
+   *  live legacy session on this device at all) left the service
+   *  perpetually signed out locally despite muse-id considering it linked,
+   *  which is what produced the "$0 · 0 plugins" symptom for an otherwise
+   *  correctly-linked paid account. A failed exchange is surfaced via
+   *  `error`, not thrown. */
   linkByEmailVerify: (service: ServiceName, email: string, code: string) => Promise<'linked' | 'no_account'>;
 
   // ---- Globally-mounted MuseIdAuthDialog (Task 3.2a) ---------------------
@@ -418,10 +431,25 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
   const linkService = useCallback(
     async (service: ServiceName, legacyAccessToken: string): Promise<void> => {
       setError(null);
-      await museIdLink(service, legacyAccessToken);
+      const result = await museIdLink(service, legacyAccessToken);
+      if (result.linked) {
+        if (result.rpSynced === false) {
+          setError(
+            `Linked to Muse ID, but couldn't finish connecting ${service} — try again from Accounts.`,
+          );
+        }
+        const museAccessToken = getAccessToken();
+        if (museAccessToken) {
+          try {
+            await adoptForService(service, museAccessToken, legacyAccessToken);
+          } catch {
+            setError(`Linked, but couldn't connect ${service} — try again from Accounts.`);
+          }
+        }
+      }
       await fetchProfile();
     },
-    [fetchProfile],
+    [fetchProfile, adoptForService],
   );
 
   const unlinkService = useCallback(
@@ -456,11 +484,24 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
       setError(null);
       const result = await museIdLinkVerify(service, email, code);
       if (result.status === 'linked') {
+        if (result.rpSynced === false) {
+          setError(
+            `Linked to Muse ID, but couldn't finish connecting ${service} — try again from Accounts.`,
+          );
+        }
+        const museAccessToken = getAccessToken();
+        if (museAccessToken) {
+          try {
+            await adoptForService(service, museAccessToken);
+          } catch {
+            setError(`Linked, but couldn't connect ${service} — try again from Accounts.`);
+          }
+        }
         await fetchProfile();
       }
       return result.status;
     },
-    [fetchProfile],
+    [fetchProfile, adoptForService],
   );
 
   // Globally-mounted MuseIdAuthDialog state — mirrors MuseHubContext's/

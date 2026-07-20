@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MuseHubProvider, useMuseHub } from '../MuseHubContext';
 import { AdieuProvider, useAdieu } from '../AdieuContext';
 import { MuseIdProvider, useMuseId } from '../MuseIdContext';
-import { createMuseIdMock, type MuseIdMockControls, ADIEU_BASE } from '../../__tests__/museIdMock';
+import { createMuseIdMock, type MuseIdMockControls, ADIEU_BASE, MOOSEHUB_BASE } from '../../__tests__/museIdMock';
 
 afterEach(cleanup);
 
@@ -303,5 +303,70 @@ describe('MuseIdContext', () => {
       expect(call, `expected a fetch call to ${path}`).toBeTruthy();
       expect(call?.[1]?.credentials, `${path} must send credentials:'include'`).toBe('include');
     }
+  });
+
+  // ---- Task 5.4 fix regression -------------------------------------------
+  //
+  // Before the fix: rung 3 ("different email — prove by code") registered
+  // the link ONLY in muse-id's own LinkedAccount table. The RP's museId
+  // join column was never written, so (1) the sandbox never signed the
+  // service in locally (museHub.signedIn stayed false, producing the
+  // "$0 · 0 plugins" symptom on an otherwise-linked paid account), and (2)
+  // any later exchange for that muse token fell through to JIT-provision,
+  // silently creating a DUPLICATE account instead of resolving the real,
+  // already-linked one.
+  it('rung 3: a different-email link signs the service in locally, and a later exchange museId-MATCHES the same real account instead of creating a duplicate', async () => {
+    mock.seedMuseUser({ email: 'rung3@mu.se', password: 'password1', name: 'Rung Three' });
+    // The REAL, already-populated MuseHub account — note its email does
+    // NOT match the muse account's own email, which is the whole point of
+    // rung 3.
+    mock.seedServiceUser('moose-hub', { email: 'rung3-alt@mu.se', name: 'Real MuseHub Owner', itemCount: 7 });
+
+    const { result } = renderContexts();
+    await waitFor(() => expect(result.current.museId.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.museId.signIn('rung3@mu.se', 'password1');
+    });
+    await waitFor(() => expect(result.current.museId.signedIn).toBe(true));
+    expect(result.current.museId.linkedServices).toEqual([]);
+
+    await act(async () => {
+      await result.current.museId.linkByEmailStart('moose-hub', 'rung3-alt@mu.se');
+    });
+    let status: 'linked' | 'no_account' | undefined;
+    await act(async () => {
+      status = await result.current.museId.linkByEmailVerify('moose-hub', 'rung3-alt@mu.se', '000000');
+    });
+    expect(status).toBe('linked');
+    expect(result.current.museId.linkedServices).toContain('moose-hub');
+
+    // Fix B: linkByEmailVerify now exchanges + adopts moose-hub's own
+    // tokens on success — the service is actually signed in locally, not
+    // just "linked" in muse-id's directory.
+    await waitFor(() => expect(result.current.museHub.signedIn).toBe(true));
+    expect(result.current.museId.error).toBeNull();
+
+    // Fix A + mock modeling: a SECOND, independent exchange for the same
+    // muse access token must museId-MATCH the real, already-linked
+    // account — not JIT-provision a fresh $0/0-plugin duplicate. This is
+    // the exact regression the review flagged: rung 3 "linking" was a
+    // false signal because nothing durable tied the RP account to the
+    // muse account, so every subsequent exchange re-orphaned it.
+    const museAccessToken = mock.museAccessTokenFor('rung3@mu.se');
+    expect(museAccessToken).toBeTruthy();
+    const exchangeRes = await fetch(`${MOOSEHUB_BASE}/api/auth/muse-exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ muse_access_token: museAccessToken }),
+    });
+    const exchangeJson = await exchangeRes.json();
+    expect(exchangeJson.accountStatus).toBe('linked');
+    expect(exchangeJson.user.email).toBe('rung3-alt@mu.se');
+    expect(exchangeJson.display).toEqual({
+      name: 'Real MuseHub Owner',
+      maskedEmail: 'run•••@mu.se',
+      summary: '7 plugins',
+    });
   });
 });
