@@ -22,7 +22,9 @@ import {
   logout as adieuLogout,
   getUserInfo,
   listProjects,
+  adoptTokens as adieuAdoptTokens,
   type AdieuProjectSummary,
+  type AdieuTokens,
 } from '../lib/adieu-client';
 import { AdieuAuthDialog } from '../components/adieu/AdieuAuthDialog';
 
@@ -60,6 +62,12 @@ interface AdieuContextValue {
   signOut: () => Promise<void>;
   /** Re-fetch userinfo + projects from adieu. Called on mount + tab focus. */
   hydrate: () => Promise<void>;
+  /** Adopts tokens obtained elsewhere (a Muse ID `muse-exchange` response)
+   *  as this client's own signed-in session, then hydrates — the user ends
+   *  up signed in to adieu exactly as if they'd used the legacy
+   *  AdieuAuthDialog. Additive: MuseIdContext is the only caller today;
+   *  every existing sign-in path (signIn/hydrate/signOut) is untouched. */
+  adoptTokens: (tokens: AdieuTokens) => Promise<void>;
   /** Re-fetch only the project list (cheaper; for post-save refresh). */
   refreshProjects: () => Promise<void>;
   /** State of the globally-mounted AdieuAuthDialog. */
@@ -212,6 +220,14 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
     setCloudProjectsLoaded(false);
   }, []);
 
+  const adoptTokens = useCallback(
+    async (tokens: AdieuTokens) => {
+      adieuAdoptTokens(tokens);
+      await hydrate();
+    },
+    [hydrate],
+  );
+
   const value = useMemo<AdieuContextValue>(
     () => ({
       signedIn,
@@ -221,6 +237,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       signIn,
       signOut,
       hydrate,
+      adoptTokens,
       refreshProjects,
       authDialog,
       openAuthDialog,
@@ -235,6 +252,7 @@ export const AdieuProvider: React.FC<{ children: React.ReactNode }> = ({
       signIn,
       signOut,
       hydrate,
+      adoptTokens,
       refreshProjects,
       authDialog,
       openAuthDialog,

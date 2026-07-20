@@ -33,6 +33,7 @@ const OAuthCallback = React.lazy(() =>
 import { RecordingManager } from './utils/RecordingManager';
 import { MuseHubProvider, useMuseHub, useInstalledEffects } from './contexts/MuseHubContext';
 import { AdieuProvider, useAdieu } from './contexts/AdieuContext';
+import { MuseIdProvider } from './contexts/MuseIdContext';
 import { MuseHubHomeAccountCard } from './components/wallet/MuseHubHomeAccountCard';
 import { useZoomControls } from './hooks/useZoomControls';
 import { useCanvasScrollSync } from './hooks/useCanvasScrollSync';
@@ -1184,7 +1185,16 @@ function ThemedApp() {
                 <ContextMenuProvider>
                   <MuseHubProvider>
                     <AdieuProvider>
-                      <CanvasDemoContent />
+                      {/* MuseIdProvider must sit inside BOTH MuseHubProvider
+                          and AdieuProvider — its exchange/sign-out flows
+                          call useMuseHub().adoptTokens/signOut and
+                          useAdieu().adoptTokens/signOut directly, which are
+                          only reachable as a descendant of both. See
+                          MuseIdContext.tsx's file header for the full
+                          provider-pattern justification. */}
+                      <MuseIdProvider>
+                        <CanvasDemoContent />
+                      </MuseIdProvider>
                     </AdieuProvider>
                   </MuseHubProvider>
                 </ContextMenuProvider>

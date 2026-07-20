@@ -106,6 +106,18 @@ export function hasToken(): boolean {
   return readTokens() !== null;
 }
 
+/**
+ * Adopts tokens obtained elsewhere (e.g. a Muse ID `/api/auth/muse-exchange`
+ * response) as this client's own signed-in session — writes them to the
+ * same store `directLogin`/OAuth would, so every downstream behavior
+ * (`fetchWithAuth`, refresh-on-401, `hasToken`) is identical to a native
+ * moose-hub sign-in. Purely additive: it's just `writeTokens` under a name
+ * that documents the calling context; no existing auth path is touched.
+ */
+export function adoptTokens(tokens: MuseHubTokens): void {
+  writeTokens(tokens);
+}
+
 // ---- PKCE helpers ---------------------------------------------------------
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -434,6 +446,20 @@ export async function logout(): Promise<void> {
     }
   }
   clearTokens();
+}
+
+/**
+ * Clears this service's side of the Muse ID join column (`User.museId`).
+ * Bearer-authenticated as the moose-hub user — does NOT touch muse-id's own
+ * `LinkedAccount` row; that's a separate call the caller makes to muse-id's
+ * `/api/unlink`. Idempotent server-side (unlinking an already-unlinked
+ * account is still a clean 200).
+ */
+export async function museUnlink(): Promise<void> {
+  const res = await fetchWithAuth('/api/auth/muse-unlink', { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(`Muse unlink failed: ${res.status}`);
+  }
 }
 
 async function refreshTokens(): Promise<MuseHubTokens | null> {

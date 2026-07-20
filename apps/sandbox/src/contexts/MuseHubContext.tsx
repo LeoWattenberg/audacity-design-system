@@ -31,7 +31,9 @@ import {
   getLibrary,
   spendWallet,
   buyPlugin,
+  adoptTokens as museHubAdoptTokens,
   type MuseHubEntitlement,
+  type MuseHubTokens,
 } from '../lib/musehub-client';
 import { AuthDialog } from '../components/wallet/AuthDialog';
 
@@ -79,6 +81,12 @@ interface MuseHubContextValue {
   /** Re-fetch user/wallet/library from moose-hub. Call after the sign-in
    *  dialog writes fresh tokens. */
   hydrate: () => Promise<void>;
+  /** Adopts tokens obtained elsewhere (a Muse ID `muse-exchange` response)
+   *  as this client's own signed-in session, then hydrates — the user ends
+   *  up signed in to moose-hub exactly as if they'd used the legacy
+   *  AuthDialog. Additive: MuseIdContext is the only caller today; every
+   *  existing sign-in path (signIn/hydrate/signOut) is untouched. */
+  adoptTokens: (tokens: MuseHubTokens) => Promise<void>;
   /** State of the globally-mounted AuthDialog. */
   authDialog: 'closed' | 'sign-in' | 'create-account';
   /** Open the AuthDialog in a given mode. */
@@ -467,6 +475,14 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({
     setPurchasedEffects([]);
   }, []);
 
+  const adoptTokens = useCallback(
+    async (tokens: MuseHubTokens) => {
+      museHubAdoptTokens(tokens);
+      await hydrate();
+    },
+    [hydrate],
+  );
+
   const spend = useCallback(
     async (amountUsd: number, pluginId: string) => {
       const previousBalance = balance;
@@ -610,6 +626,7 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({
       signIn,
       signOut,
       hydrate,
+      adoptTokens,
       authDialog,
       openAuthDialog,
       closeAuthDialog,
@@ -641,6 +658,7 @@ export const MuseHubProvider: React.FC<{ children: React.ReactNode }> = ({
       signIn,
       signOut,
       hydrate,
+      adoptTokens,
       authDialog,
       openAuthDialog,
       closeAuthDialog,
