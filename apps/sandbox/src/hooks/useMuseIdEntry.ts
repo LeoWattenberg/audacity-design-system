@@ -17,43 +17,40 @@
 // State 1 (linked, zero prompts), state 2 (same-email match, confirm
 // before claiming), and state 3 (no match, create — stated plainly) all
 // hinge on knowing, AT CLICK TIME, whether the target service already had
-// an account under the Muse profile's email. The real moose-hub/adieu
-// `/api/auth/muse-exchange` routes resolve this server-side already
-// (museId link -> legacy token -> verified email -> JIT-provision, see
-// each RP's route.ts) but don't expose WHICH branch fired — the response
-// is tokens + user, nothing else. There is also no client-reachable
-// preview/lookup endpoint: `/api/internal/lookup` is S2S-only, RP-secret
-// gated, no CORS (by design — anti-enumeration), so it can't be called
-// from here even if we wanted to peek before committing.
+// an account under the Muse profile's email. moose-hub/adieu's
+// `/api/auth/muse-exchange` routes resolve this server-side (museId link
+// -> legacy token -> verified email -> JIT-provision, see each RP's
+// route.ts) AND report which rung fired via `accountStatus` (fixed in the
+// 5.3 review follow-up, 2026-07-20 — previously the RPs resolved the rung
+// but never returned it, so every already-linked returning user fell
+// through to an extra "Continue" click; see ServiceExchangeResult's doc
+// comment in muse-id-client.ts).
 //
-// Rather than add a two-phase preview/commit API to three repos outside
-// this task's scope (moose-hub, adieu, muse-id — task 5.3 is sandbox-only
-// per its brief), this hook uses an OPTIONAL `accountStatus`/`display`
-// pair on the exchange response (added to `ServiceExchangeResult` in
-// muse-id-client.ts, populated by museIdMock.ts for full-fidelity tests)
-// and an "optimistic exchange, confirm-to-keep, decline-to-revert" flow:
+// This hook reads that discriminator via an "optimistic exchange,
+// confirm-to-keep, decline-to-revert" flow:
 //
 //   1. Call exchange. This is the SAME real, atomic resolve-or-create call
 //      either way — nothing here makes it any more or less committed than
 //      the endpoint already is.
-//   2. If `accountStatus === 'email_match'` (a match, not yet linked
+//   2. If `accountStatus === 'matched-by-email'` (a match, not yet linked
 //      before this call), hold the tokens WITHOUT adopting them and show
 //      the recognition card. Confirming adopts them (state 2, satisfied);
 //      declining reverses the just-established link (see declineClaim)
 //      instead of leaving a silently-claimed account behind.
-//   3. Otherwise (`'created'`, or absent — the real backend today) there
-//      is nothing to confirm: adopt immediately and state the outcome
-//      (state 3/1).
+//   3. If `accountStatus === 'linked'`, the caller was already linked
+//      before this call — adopt and finish with ZERO prompts (state 1).
+//   4. Otherwise (`'created'`, `'linked-by-session'`, or absent) there is
+//      nothing to confirm: adopt immediately and state the outcome
+//      (state 3). `'linked-by-session'` isn't reachable from this hook's
+//      CTA today (continueWithMuseId never sends a legacy_access_token —
+//      only MuseIdContext's signup-time session-proof links do, and that
+//      path doesn't consult accountStatus at all), but is handled the
+//      same neutral way as an absent value for forward-safety.
 //
-// KNOWN GAP, disclosed rather than silently worked around: against the
-// REAL (unenriched) backend, `accountStatus` is always undefined, so an
-// already-linked returning sign-in and a fresh JIT-provision are
-// indistinguishable here — both take the "state the outcome" branch. The
-// copy for that branch is deliberately neutral ("You're connected…")
-// rather than claiming a specific outcome, so it's never actually wrong,
-// just less informative than the mock-backed demo. See
-// ServiceExchangeResult's doc comment in muse-id-client.ts for the
-// specific follow-up (add the discriminator to the real exchange routes).
+// `accountStatus`/`display` remain optional in the type (museIdMock.ts
+// and any RP-shape drift shouldn't be a hard client-side assumption) —
+// an absent value still degrades to the same neutral "settled, not
+// verified-new" copy it always has.
 //
 // State 4 (different email) is NOT server-detected — the spec frames it as
 // user-initiated ("Have an account under a different email? Add it"), so
@@ -180,7 +177,7 @@ export function useMuseIdEntry({
       const result = await runExchange(museAccessToken);
       const tokens = exchangeResultToTokens(result);
 
-      if (result.accountStatus === 'email_match' && result.display) {
+      if (result.accountStatus === 'matched-by-email' && result.display) {
         pendingTokensRef.current = tokens;
         setPhase({ kind: 'confirm', display: result.display });
         return;

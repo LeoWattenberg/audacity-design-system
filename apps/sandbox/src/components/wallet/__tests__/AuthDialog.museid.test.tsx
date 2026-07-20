@@ -97,6 +97,35 @@ describe('AuthDialog — Continue with Muse ID', () => {
     expect(screen.queryByText(/Is this you/i)).toBeNull();
   });
 
+  it('state 1: closes with NO extra click — the exchange response alone (accountStatus "linked") is enough, no Continue button ever renders', async () => {
+    // 5.3 review follow-up (2026-07-20): before the RP muse-exchange fix,
+    // accountStatus was absent from every real response, so this exact
+    // scenario fell through to the 'settled' phase and required a second
+    // "Continue to MuseHub" click — the bug this test guards against.
+    mock.seedMuseUser({ email: 'zc@mu.se', password: 'password1', name: 'Zoe', linkedServices: ['moose-hub'] });
+    mock.seedServiceUser('moose-hub', { email: 'zc@mu.se', name: 'Zoe' });
+
+    const { apiRef } = renderTree();
+    await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+    await act(async () => {
+      await apiRef.current!.museId.signIn('zc@mu.se', 'password1');
+    });
+    await waitFor(() => expect(apiRef.current!.museHub.signedIn).toBe(true));
+    await act(async () => {
+      await apiRef.current!.museHub.signOut();
+    });
+
+    act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+
+    // Signed in and the dialog is gone — no "Continue to MuseHub" (state
+    // 3) or "Yes, that's me" (state 2) button ever appeared in between.
+    await waitFor(() => expect(apiRef.current!.museHub.signedIn).toBe(true));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue to MuseHub' })).toBeNull();
+    expect(screen.queryByRole('button', { name: "Yes, that's me — continue" })).toBeNull();
+  });
+
   it('state 2: same-email match -> recognition card with NO monetary value, confirm links + signs in', async () => {
     mock.seedMuseUser({ email: 'bea@mu.se', password: 'password1', name: 'Bea' });
     mock.seedServiceUser('moose-hub', { email: 'bea@mu.se', name: 'Bea MuseHub', itemCount: 4 });
@@ -151,6 +180,53 @@ describe('AuthDialog — Continue with Muse ID', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByRole('button', { name: 'Continue with Muse ID' })).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
+  });
+
+  it('focus restoration: returning to idle via "Back" (from different-email) lands focus on the Continue-with-Muse-ID CTA, not <body>', async () => {
+    // 5.3 review follow-up (2026-07-20): the phase-transition focus effect
+    // fired on every entry.phase.kind change, but idle's CTA was never
+    // wired to the shared focus ref — every other transition refocused
+    // correctly, but Back/Try again silently stranded focus on <body>
+    // inside a still-open modal.
+    mock.seedMuseUser({ email: 'h@mu.se', password: 'password1', name: 'Hana' });
+    mock.seedServiceUser('moose-hub', { email: 'h@mu.se', name: 'Not Hana', itemCount: 1 });
+
+    const { apiRef } = renderTree();
+    await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+    await act(async () => {
+      await apiRef.current!.museId.signIn('h@mu.se', 'password1');
+    });
+
+    act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+    await screen.findByText('Not Hana');
+    fireEvent.click(screen.getByRole('button', { name: 'Not me — use a different account' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }));
+
+    const cta = await screen.findByRole('button', { name: 'Continue with Muse ID' });
+    await waitFor(() => expect(document.activeElement).toBe(cta));
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('focus restoration: returning to idle via "Try again" (from a failed exchange) lands focus on the Continue-with-Muse-ID CTA, not <body>', async () => {
+    mock.seedMuseUser({ email: 'i@mu.se', password: 'password1', name: 'Ira' });
+
+    const { apiRef } = renderTree();
+    await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+    await act(async () => {
+      await apiRef.current!.museId.signIn('i@mu.se', 'password1');
+    });
+
+    act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+    mock.failNext('muse-exchange');
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+
+    const cta = await screen.findByRole('button', { name: 'Continue with Muse ID' });
+    await waitFor(() => expect(document.activeElement).toBe(cta));
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it('state 3: no matching account -> creates one, stated plainly, then signs in', async () => {

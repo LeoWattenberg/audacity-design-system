@@ -370,33 +370,39 @@ export function createMuseIdMock(): MuseIdMockControls {
         const museUser = museOwner && museOwner.kind === 'muse' ? state.museUsers.get(museOwner.email) : undefined;
         if (!museOwner || !museUser) return jsonResponse({ error: 'invalid_muse_token' }, 401);
 
-        // Task 5.3: capture the resolution path BEFORE mutating state, so
-        // the response can tell "Continue with Muse ID" (AuthDialog.tsx /
-        // AdieuAuthDialog.tsx) whether this call matched an existing
-        // account (needs the "confirm before claiming" recognition card)
-        // or freshly created one (stated plainly, no confirm) — see
-        // ServiceExchangeResult.accountStatus's doc comment in
-        // muse-id-client.ts for why the real RPs can't do this yet.
+        // Task 5.3 (fixed in the 5.3 review follow-up, 2026-07-20): capture
+        // the resolution rung BEFORE mutating state, mirroring the REAL
+        // moose-hub/adieu `/api/auth/muse-exchange` route.ts's four-rung
+        // order (museId match -> legacy_access_token -> email match ->
+        // JIT-provision) 1:1, so the mock's accountStatus can't drift from
+        // what production actually sends — see ServiceExchangeResult's
+        // doc comment in muse-id-client.ts.
         const alreadyLinked = museUser.linkedServices.has(service);
         let su = state.serviceUsers[service].get(museOwner.email);
-        const matchedByEmail = !alreadyLinked && !!su;
-        if (!su && body.legacy_access_token) {
+        let accountStatus: 'linked' | 'linked-by-session' | 'matched-by-email' | 'created';
+        if (alreadyLinked) {
+          accountStatus = 'linked';
+        } else if (su) {
+          accountStatus = 'matched-by-email';
+        } else if (body.legacy_access_token) {
           const legacyOwner = state.accessTokens.get(body.legacy_access_token);
-          if (legacyOwner && legacyOwner.kind === service) {
-            su = state.serviceUsers[service].get(legacyOwner.email);
+          const legacySu = legacyOwner && legacyOwner.kind === service
+            ? state.serviceUsers[service].get(legacyOwner.email)
+            : undefined;
+          if (legacySu) {
+            su = legacySu;
+            accountStatus = 'linked-by-session';
+          } else {
+            accountStatus = 'created';
           }
+        } else {
+          accountStatus = 'created';
         }
         if (!su) {
           su = { id: nextId(`${service}-user`), email: museOwner.email, name: museUser.name, avatarUrl: museUser.avatarUrl, itemCount: 0 };
           state.serviceUsers[service].set(museOwner.email, su);
         }
         museUser.linkedServices.add(service);
-
-        const accountStatus: 'linked' | 'email_match' | 'created' = alreadyLinked
-          ? 'linked'
-          : matchedByEmail
-            ? 'email_match'
-            : 'created';
 
         return jsonResponse({
           ...mintTokens(service, museOwner.email),

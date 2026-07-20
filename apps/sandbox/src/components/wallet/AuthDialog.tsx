@@ -71,6 +71,16 @@ export const AuthDialog: React.FC = () => {
   const focusMuseFirstRef = (el: HTMLElement | null) => {
     museFocusRef.current = el;
   };
+  // Guards the phase-transition focus effect below against double-focusing
+  // on initial open: the "reset form" effect (below) already focuses
+  // firstInputRef when the dialog opens, and entry.phase.kind starts at
+  // 'idle' on every open, so the phase-transition effect would otherwise
+  // ALSO fire on that same mount and steal focus onto the CTA button. Set
+  // true whenever the reset effect runs, consumed (and cleared) by the
+  // very next phase-transition effect run — so it only suppresses that
+  // one initial firing, never a later real "back to idle" transition
+  // (Back from different-email / Try again from error).
+  const justOpenedRef = useRef(false);
 
   const entry = useMuseIdEntry({
     service: 'moose-hub',
@@ -100,6 +110,7 @@ export const AuthDialog: React.FC = () => {
     setVerificationCode('');
     setLinkPromptPending(false);
     entry.reset();
+    justOpenedRef.current = true;
     setTimeout(() => firstInputRef.current?.focus(), 50);
     // entry.reset is stable (useCallback, no deps) — omitted to avoid
     // re-running this effect on every entry-hook re-render.
@@ -109,9 +120,17 @@ export const AuthDialog: React.FC = () => {
   // Focus the new panel's first control on every Muse ID entry-flow state
   // change (exchanging -> confirm/settled/different-email/error, and the
   // post-legacy-sign-in link prompt) — same convention as MuseIdAuthDialog's
-  // step-transition focus effect.
+  // step-transition focus effect. Includes idle (see focusMuseFirstRef on
+  // the "Continue with Muse ID" CTA below) so returning to idle via Back/
+  // Try again refocuses a real control instead of stranding focus on
+  // <body> — see justOpenedRef's comment for why the very first idle
+  // (on open) is skipped here rather than double-focusing.
   useEffect(() => {
     if (!open) return;
+    if (justOpenedRef.current) {
+      justOpenedRef.current = false;
+      return;
+    }
     setTimeout(() => museFocusRef.current?.focus(), 50);
   }, [open, entry.phase.kind, linkPromptPending]);
 
@@ -377,6 +396,7 @@ export const AuthDialog: React.FC = () => {
         {showLegacyPanel && (
           <>
             <button
+              ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
               type="button"
               className="auth-dialog__cta auth-dialog__cta--museid"
               onClick={() => void entry.continueWithMuseId()}

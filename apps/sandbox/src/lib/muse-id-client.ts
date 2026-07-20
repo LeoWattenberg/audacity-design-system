@@ -103,22 +103,30 @@ export interface SignInResult extends TokenBundle {
 
 export interface ServiceExchangeResult extends TokenBundle {
   user: { id: string; email: string; name: string };
-  /** Task 5.3: lets "Continue with Muse ID" (AuthDialog.tsx /
-   *  AdieuAuthDialog.tsx) tell a fresh JIT-provisioned account apart from
-   *  one matched by email — the design spec's "confirm before claiming"
-   *  rule for recognition cards requires knowing which happened. 'linked'
-   *  = the caller was already linked (should not normally reach the
-   *  client in the not-linked CTA flow, but included for completeness).
-   *  KNOWN GAP: the real moose-hub/adieu `/api/auth/muse-exchange` routes
-   *  do not send `accountStatus`/`display` yet (verified against
-   *  ~/Documents/webdev/{moose-hub,adieu}/app/api/auth/muse-exchange/
-   *  route.ts, 2026-07-20) — only museIdMock.ts populates them today, so
-   *  both fields MUST be treated as optional/absent-safe by every caller.
-   *  Follow-up: add the same discriminator + `display` (reusing each RP's
-   *  existing maskEmail/summary helpers from task 5.2's
-   *  /api/internal/lookup) to the real exchange route, in a dedicated
-   *  task against those repos. */
-  accountStatus?: 'linked' | 'email_match' | 'created';
+  /** Task 5.3 (fixed in the 5.3 review follow-up, 2026-07-20): lets
+   *  "Continue with Muse ID" (AuthDialog.tsx / AdieuAuthDialog.tsx) tell
+   *  which of the four server-side resolution rungs fired — the design
+   *  spec's "confirm before claiming" rule for recognition cards requires
+   *  knowing whether this was a same-email match, not just that SOME
+   *  account was resolved. Mirrors moose-hub's/adieu's `/api/auth/
+   *  muse-exchange` route.ts resolution order 1:1:
+   *   - 'linked' — (a) existing museId match; caller was already linked.
+   *     Zero-prompt exchange (useMuseIdEntry's state 1).
+   *   - 'linked-by-session' — (b) a `legacy_access_token` proved a live
+   *     legacy session; the RP adopted that user. Not reachable from
+   *     useMuseIdEntry's CTA today (it never sends legacy_access_token —
+   *     see continueWithMuseId), only from MuseIdContext's signup-time
+   *     session-proof links; included for type completeness/correctness.
+   *   - 'matched-by-email' — (c) verified email matched an existing,
+   *     not-yet-linked account. Confirm-before-claiming card (state 2).
+   *   - 'created' — (d) JIT-provisioned a brand-new account. Stated
+   *     plainly, no confirm (state 3).
+   *  Both moose-hub and adieu now send this field on every response
+   *  (verified against ~/Documents/webdev/{moose-hub,adieu}/app/api/auth/
+   *  muse-exchange/route.ts, 2026-07-20) — no longer optional in practice,
+   *  but kept optional in the type since museIdMock.ts and any future
+   *  RP-shape drift shouldn't be a hard client-side assumption. */
+  accountStatus?: 'linked' | 'linked-by-session' | 'matched-by-email' | 'created';
   display?: { name: string; maskedEmail: string; summary: string };
 }
 

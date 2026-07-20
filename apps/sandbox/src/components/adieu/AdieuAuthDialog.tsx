@@ -43,6 +43,10 @@ export const AdieuAuthDialog: React.FC = () => {
   const focusMuseFirstRef = (el: HTMLElement | null) => {
     museFocusRef.current = el;
   };
+  // See wallet/AuthDialog.tsx's identical ref for the rationale (guards
+  // the phase-transition focus effect against double-focusing on the
+  // initial open, now that idle's CTA is also wired to focusMuseFirstRef).
+  const justOpenedRef = useRef(false);
 
   const entry = useMuseIdEntry({
     service: 'adieu',
@@ -66,6 +70,7 @@ export const AdieuAuthDialog: React.FC = () => {
     setSubmitting(false);
     setLinkPromptPending(false);
     entry.reset();
+    justOpenedRef.current = true;
     setTimeout(() => firstInputRef.current?.focus(), 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode]);
@@ -73,9 +78,14 @@ export const AdieuAuthDialog: React.FC = () => {
   const museBusy = entry.phase.kind === 'exchanging';
 
   // Focus the new panel's first control on every Muse ID entry-flow state
-  // change — see wallet/AuthDialog.tsx's identical effect.
+  // change, including idle (Back/Try again) — see wallet/AuthDialog.tsx's
+  // identical effect for the full rationale.
   useEffect(() => {
     if (!open) return;
+    if (justOpenedRef.current) {
+      justOpenedRef.current = false;
+      return;
+    }
     setTimeout(() => museFocusRef.current?.focus(), 50);
   }, [open, entry.phase.kind, linkPromptPending]);
 
@@ -299,6 +309,7 @@ export const AdieuAuthDialog: React.FC = () => {
         {showLegacyPanel && (
           <>
             <button
+              ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
               type="button"
               className="adieu-auth-dialog__cta adieu-auth-dialog__cta--museid"
               onClick={() => void entry.continueWithMuseId()}
