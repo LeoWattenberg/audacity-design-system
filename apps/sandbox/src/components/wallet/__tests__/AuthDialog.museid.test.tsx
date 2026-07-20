@@ -172,7 +172,8 @@ describe('AuthDialog — Continue with Muse ID', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Not me — use a different account' }));
 
-    await screen.findByText(/different email is coming soon/i);
+    // Lands on rung 3's email step (task 5.4) — not a placeholder anymore.
+    await screen.findByText(/Have a MuseHub account under a different email/i);
     await waitFor(() => expect(apiRef.current!.museHub.signedIn).toBe(false));
     expect(apiRef.current!.museId.linkedServices).not.toContain('moose-hub');
 
@@ -393,5 +394,119 @@ describe('AuthDialog — Continue with Muse ID', () => {
     await waitFor(() => expect(apiRef.current!.museHub.signedIn).toBe(true));
     // No Muse session was ever held, so no link prompt — closes normally.
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // ---- Rung 3: "different email — prove by code" (task 5.4) ---------------
+
+  describe('rung 3 — different email, prove by code', () => {
+    it('happy path: linking a MuseHub account under a verified different email connects it, with no legacy session needed', async () => {
+      mock.seedMuseUser({ email: 'rung3@mu.se', password: 'password1', name: 'Rung Three' });
+      // The user's REAL MuseHub account lives under a DIFFERENT email —
+      // neither the email-match nor the session rung can find it.
+      mock.seedServiceUser('moose-hub', { email: 'rung3-alt@mu.se', name: 'Real Rung Three', itemCount: 3 });
+
+      const { apiRef } = renderTree();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+      await act(async () => {
+        await apiRef.current!.museId.signIn('rung3@mu.se', 'password1');
+      });
+
+      act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+      // State 3 fires first (no account under the Muse ID's OWN email) —
+      // decline it to reach the rung-3 hand-off, exactly as a real user
+      // would ("actually, my MuseHub account is under a different email").
+      await screen.findByText("We've set up your MuseHub account.");
+      fireEvent.click(screen.getByRole('button', { name: 'Actually, I have an account under a different email' }));
+
+      const emailInput = await screen.findByLabelText('Email');
+      fireEvent.change(emailInput, { target: { value: 'rung3-alt@mu.se' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      const codeInput = await screen.findByLabelText('Verification code', { exact: false });
+      expect(screen.getByText("We've sent a code to rung3-alt@mu.se.")).toBeInTheDocument();
+      fireEvent.change(codeInput, { target: { value: '000000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+      await screen.findByText('That MuseHub account is now connected to your Muse ID.');
+      await waitFor(() => expect(apiRef.current!.museId.linkedServices).toContain('moose-hub'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Continue to MuseHub' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('no_account: proves ownership of the email but nothing exists there — neutral message, nothing created or linked', async () => {
+      mock.seedMuseUser({ email: 'rung3b@mu.se', password: 'password1', name: 'Rung Three B' });
+      // No moose-hub service user seeded at 'rung3b-alt@mu.se' anywhere.
+
+      const { apiRef } = renderTree();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+      await act(async () => {
+        await apiRef.current!.museId.signIn('rung3b@mu.se', 'password1');
+      });
+
+      act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+      await screen.findByText("We've set up your MuseHub account.");
+      fireEvent.click(screen.getByRole('button', { name: 'Actually, I have an account under a different email' }));
+
+      fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'rung3b-alt@mu.se' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      fireEvent.change(await screen.findByLabelText('Verification code', { exact: false }), { target: { value: '000000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+      await screen.findByText('No account found for that email.');
+      expect(apiRef.current!.museId.linkedServices).not.toContain('moose-hub');
+
+      // Recoverable, not a dead end — offers another attempt.
+      fireEvent.click(screen.getByRole('button', { name: 'Try another email' }));
+      expect(await screen.findByLabelText('Email')).toBeInTheDocument();
+    });
+
+    it('already-linked conflict: a service account already linked to a DIFFERENT Muse ID shows a clear message and stays on the code step', async () => {
+      mock.seedMuseUser({ email: 'owner@mu.se', password: 'password1', name: 'Owner' });
+      mock.seedServiceUser('moose-hub', { email: 'shared-alt@mu.se', name: 'Shared Account', itemCount: 5 });
+
+      const { apiRef } = renderTree();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+
+      // Scene-setting via direct context calls (not the UI): the owner
+      // already linked the shared account through rung 3.
+      await act(async () => {
+        await apiRef.current!.museId.signIn('owner@mu.se', 'password1');
+        await apiRef.current!.museId.linkByEmailStart('moose-hub', 'shared-alt@mu.se');
+        await apiRef.current!.museId.linkByEmailVerify('moose-hub', 'shared-alt@mu.se', '000000');
+      });
+      await waitFor(() => expect(apiRef.current!.museId.linkedServices).toContain('moose-hub'));
+      await act(async () => {
+        await apiRef.current!.museId.signOutEverywhere();
+      });
+
+      // A second, unrelated Muse ID tries to claim the SAME account.
+      mock.seedMuseUser({ email: 'rival@mu.se', password: 'password1', name: 'Rival' });
+      await act(async () => {
+        await apiRef.current!.museId.signIn('rival@mu.se', 'password1');
+      });
+
+      act(() => apiRef.current!.museHub.openAuthDialog('sign-in'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Continue with Muse ID' }));
+      await screen.findByText("We've set up your MuseHub account.");
+      fireEvent.click(screen.getByRole('button', { name: 'Actually, I have an account under a different email' }));
+
+      fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'shared-alt@mu.se' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      fireEvent.change(await screen.findByLabelText('Verification code', { exact: false }), { target: { value: '000000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(/already linked to a different Muse ID/i),
+      );
+      // Stayed on the code step (recoverable) rather than bounced to a dead
+      // end — the user can still try a different email.
+      expect(screen.getByLabelText('Verification code', { exact: false })).toBeInTheDocument();
+      expect(apiRef.current!.museId.linkedServices).not.toContain('moose-hub');
+    });
   });
 });

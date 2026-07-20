@@ -62,6 +62,14 @@ export const AuthDialog: React.FC = () => {
   // while a Muse session is held and this service isn't linked yet.
   const [linkPromptPending, setLinkPromptPending] = useState(false);
   const [linking, setLinking] = useState(false);
+  // Rung 3 ("different email — prove by code", task 5.4): local input state
+  // for the email-B / code fields useMuseIdEntry's different-email/
+  // different-email-code phases drive. `linkSubmitting` only guards THIS
+  // form's own buttons/inputs — mirrors the legacy form's `submitting`,
+  // kept separate since the two forms are never shown at once.
+  const [linkEmail, setLinkEmail] = useState('');
+  const [linkCode, setLinkCode] = useState('');
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
   // First focusable control in whichever Muse ID entry-flow panel (CTA
   // confirm/settled/different-email/error, or the link prompt) is
@@ -97,6 +105,9 @@ export const AuthDialog: React.FC = () => {
     setVerificationCode('');
     setSignupStep('details');
     setLinkPromptPending(false);
+    setLinkEmail('');
+    setLinkCode('');
+    setLinkSubmitting(false);
     entry.reset();
   };
 
@@ -109,6 +120,9 @@ export const AuthDialog: React.FC = () => {
     setSignupStep('details');
     setVerificationCode('');
     setLinkPromptPending(false);
+    setLinkEmail('');
+    setLinkCode('');
+    setLinkSubmitting(false);
     entry.reset();
     justOpenedRef.current = true;
     setTimeout(() => firstInputRef.current?.focus(), 50);
@@ -140,9 +154,10 @@ export const AuthDialog: React.FC = () => {
     setTimeout(() => firstInputRef.current?.focus(), 50);
   }, [mode, signupStep]);
 
-  // Muse ID exchange in flight — blocks dismissal the same way `submitting`
-  // (the legacy form's own in-flight flag) already does.
-  const museBusy = entry.phase.kind === 'exchanging';
+  // Muse ID exchange (or a rung-3 link-by-email request) in flight — blocks
+  // dismissal the same way `submitting` (the legacy form's own in-flight
+  // flag) already does.
+  const museBusy = entry.phase.kind === 'exchanging' || linkSubmitting;
 
   // Escape to dismiss when nothing's in flight.
   useEffect(() => {
@@ -240,6 +255,29 @@ export const AuthDialog: React.FC = () => {
   };
   const handleSkipLink = () => finishAndClose();
 
+  // ---- Rung 3: "different email — prove by code" (task 5.4) ---------------
+
+  const handleLinkEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (linkSubmitting) return;
+    setLinkSubmitting(true);
+    await entry.startLinkByEmail(linkEmail);
+    setLinkSubmitting(false);
+  };
+
+  const handleLinkCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (linkSubmitting || entry.phase.kind !== 'different-email-code') return;
+    setLinkSubmitting(true);
+    await entry.verifyLinkByEmail(entry.phase.email, linkCode);
+    setLinkSubmitting(false);
+  };
+
+  const handleUseAnotherLinkEmail = () => {
+    setLinkCode('');
+    entry.backToEmailStep();
+  };
+
   const title = linkPromptPending
     ? 'Link to your Muse ID?'
     : entry.phase.kind === 'confirm'
@@ -247,16 +285,22 @@ export const AuthDialog: React.FC = () => {
       : entry.phase.kind === 'settled'
         ? "You're in"
         : entry.phase.kind === 'different-email'
-          ? 'Use a different email'
-          : entry.phase.kind === 'error'
-            ? 'Something went wrong'
-            : entry.phase.kind === 'exchanging'
-              ? 'Connecting…'
-              : mode === 'sign-in'
-                ? 'Sign in to MuseHub'
-                : signupStep === 'verify'
-                  ? 'Check your email'
-                  : 'Create a MuseHub account';
+          ? 'Add an account by email'
+          : entry.phase.kind === 'different-email-code'
+            ? 'Check your email'
+            : entry.phase.kind === 'different-email-result'
+              ? entry.phase.status === 'linked'
+                ? "You're connected"
+                : 'No account found'
+              : entry.phase.kind === 'error'
+                ? 'Something went wrong'
+                : entry.phase.kind === 'exchanging'
+                  ? 'Connecting…'
+                  : mode === 'sign-in'
+                    ? 'Sign in to MuseHub'
+                    : signupStep === 'verify'
+                      ? 'Check your email'
+                      : 'Create a MuseHub account';
   const submitLabel = (() => {
     if (mode === 'sign-in') return submitting ? 'Signing in…' : 'Sign in';
     if (signupStep === 'verify') return submitting ? 'Verifying…' : 'Verify and sign in';
@@ -366,16 +410,100 @@ export const AuthDialog: React.FC = () => {
         {!linkPromptPending && entry.phase.kind === 'different-email' && (
           <div className="auth-dialog__museid-panel">
             <p className="auth-dialog__subtitle">
-              Linking an account under a different email is coming soon. For now, use the form below to sign in or create a new MuseHub account.
+              Have a MuseHub account under a different email? Enter it and we'll send a code to prove it's yours.
             </p>
-            <button
-              ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
-              type="button"
-              className="auth-dialog__link"
-              onClick={entry.reset}
-            >
+            <form className="auth-dialog__form" onSubmit={(e) => void handleLinkEmailSubmit(e)} noValidate>
+              <label className="auth-dialog__field">
+                <span>Email</span>
+                <input
+                  ref={focusMuseFirstRef as React.Ref<HTMLInputElement>}
+                  type="email"
+                  value={linkEmail}
+                  onChange={(e) => setLinkEmail(e.target.value)}
+                  autoComplete="email"
+                  disabled={linkSubmitting}
+                  required
+                />
+              </label>
+              {entry.phase.error && <p className="auth-dialog__error" role="alert">{entry.phase.error}</p>}
+              <button type="submit" className="auth-dialog__cta" disabled={linkSubmitting}>
+                {linkSubmitting && <span className="auth-dialog__spinner" aria-hidden="true" />}
+                <span>{linkSubmitting ? 'Sending code…' : 'Send code'}</span>
+              </button>
+            </form>
+            <button type="button" className="auth-dialog__link" onClick={entry.reset} disabled={linkSubmitting}>
               Back
             </button>
+          </div>
+        )}
+
+        {!linkPromptPending && entry.phase.kind === 'different-email-code' && (
+          <div className="auth-dialog__museid-panel">
+            <p className="auth-dialog__subtitle">We've sent a code to {entry.phase.email}.</p>
+            <form className="auth-dialog__form" onSubmit={(e) => void handleLinkCodeSubmit(e)} noValidate>
+              <label className="auth-dialog__field">
+                <span>Verification code</span>
+                <input
+                  ref={focusMuseFirstRef as React.Ref<HTMLInputElement>}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={linkCode}
+                  onChange={(e) => setLinkCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoComplete="one-time-code"
+                  disabled={linkSubmitting}
+                  required
+                  minLength={6}
+                  maxLength={6}
+                />
+                {import.meta.env.DEV && (
+                  <span className="auth-dialog__hint">Dev hint: the mock code is 000000.</span>
+                )}
+              </label>
+              {entry.phase.error && <p className="auth-dialog__error" role="alert">{entry.phase.error}</p>}
+              <button type="submit" className="auth-dialog__cta" disabled={linkSubmitting}>
+                {linkSubmitting && <span className="auth-dialog__spinner" aria-hidden="true" />}
+                <span>{linkSubmitting ? 'Verifying…' : 'Verify'}</span>
+              </button>
+            </form>
+            <button
+              type="button"
+              className="auth-dialog__link"
+              onClick={handleUseAnotherLinkEmail}
+              disabled={linkSubmitting}
+            >
+              Use a different email
+            </button>
+          </div>
+        )}
+
+        {!linkPromptPending && entry.phase.kind === 'different-email-result' && (
+          <div className="auth-dialog__museid-panel">
+            {entry.phase.status === 'linked' ? (
+              <>
+                <p className="auth-dialog__subtitle">That MuseHub account is now connected to your Muse ID.</p>
+                <button
+                  ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
+                  type="button"
+                  className="auth-dialog__cta"
+                  onClick={finishAndClose}
+                >
+                  Continue to MuseHub
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="auth-dialog__subtitle">No account found for that email.</p>
+                <button
+                  ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
+                  type="button"
+                  className="auth-dialog__link"
+                  onClick={handleUseAnotherLinkEmail}
+                >
+                  Try another email
+                </button>
+              </>
+            )}
           </div>
         )}
 

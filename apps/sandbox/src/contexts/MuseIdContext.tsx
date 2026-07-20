@@ -46,6 +46,8 @@ import {
   getUserInfo,
   link as museIdLink,
   unlink as museIdUnlink,
+  linkStart as museIdLinkStart,
+  linkVerify as museIdLinkVerify,
   logout as museIdLogout,
   exchangeMooseHub,
   exchangeAdieu,
@@ -144,6 +146,20 @@ interface MuseIdContextValue {
    *  are two independently-owned pieces of state, so a failure clearing
    *  the RP side doesn't roll back the muse-id side). */
   unlinkService: (service: ServiceName) => Promise<void>;
+
+  // ---- Linking-ladder rung 3: "different email — prove by code" (Task 5.4)
+  /** Step 1: sends/mocks a 6-digit code to `email` to prove ownership of a
+   *  `service` account under an address OTHER than this Muse ID's own —
+   *  reachable from useMuseIdEntry's 'different-email' phase (both service
+   *  AuthDialogs) and MuseIdAccountsPage. Requires an existing Muse
+   *  session (this is post-creation linking, not part of signup). */
+  linkByEmailStart: (service: ServiceName, email: string) => Promise<void>;
+  /** Step 2: checks the code. Resolves `'linked'` (and re-hydrates
+   *  linkedServices) or `'no_account'` (ownership proven, nothing to
+   *  link — nothing created). Throws MuseIdAuthError on a bad code or
+   *  either of the two already-linked conflicts (see muse-id-client.ts's
+   *  linkVerify doc comment) — callers map the error code to copy. */
+  linkByEmailVerify: (service: ServiceName, email: string, code: string) => Promise<'linked' | 'no_account'>;
 
   // ---- Globally-mounted MuseIdAuthDialog (Task 3.2a) ---------------------
   /** State of the globally-mounted MuseIdAuthDialog. 'sign-up' is the
@@ -427,6 +443,26 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
     [fetchProfile],
   );
 
+  const linkByEmailStart = useCallback(
+    async (service: ServiceName, email: string): Promise<void> => {
+      setError(null);
+      await museIdLinkStart(service, email);
+    },
+    [],
+  );
+
+  const linkByEmailVerify = useCallback(
+    async (service: ServiceName, email: string, code: string): Promise<'linked' | 'no_account'> => {
+      setError(null);
+      const result = await museIdLinkVerify(service, email, code);
+      if (result.status === 'linked') {
+        await fetchProfile();
+      }
+      return result.status;
+    },
+    [fetchProfile],
+  );
+
   // Globally-mounted MuseIdAuthDialog state — mirrors MuseHubContext's/
   // AdieuContext's own authDialog + openAuthDialog/closeAuthDialog.
   const [authDialog, setAuthDialog] = useState<'closed' | 'sign-up' | 'sign-in'>('closed');
@@ -480,6 +516,8 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
       signOutEverywhere,
       linkService,
       unlinkService,
+      linkByEmailStart,
+      linkByEmailVerify,
       authDialog,
       openAuthDialog,
       closeAuthDialog,
@@ -501,6 +539,8 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
       signOutEverywhere,
       linkService,
       unlinkService,
+      linkByEmailStart,
+      linkByEmailVerify,
       authDialog,
       openAuthDialog,
       closeAuthDialog,

@@ -212,10 +212,73 @@
 
 .museid-accounts__service-actions {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .museid-accounts__error {
   margin: 0;
   font-size: 12px;
   color: #d64545;
+}
+
+/* Rung 3 ("different email — prove by code", task 5.4) — inline email/code
+   mini-form, active for at most one service row at a time. */
+
+.museid-accounts__email-link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__email-link {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.museid-accounts__email-link-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--preferences-text, #1a1a1a);
+}
+
+.museid-accounts__email-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--preferences-muted, rgba(0, 0, 0, 0.6));
+}
+
+.museid-accounts__email-link-field input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: transparent;
+  color: var(--preferences-text, #1a1a1a);
+  font: inherit;
+  font-size: 13px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .museid-accounts__email-link-field input {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #f3f4f6;
+  }
+}
+
+.museid-accounts__email-link-actions {
+  display: flex;
+  gap: 8px;
 }

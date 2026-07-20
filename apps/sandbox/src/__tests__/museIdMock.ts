@@ -11,7 +11,8 @@
 // route handlers — just enough state (users, tokens, links) and enough of
 // their request/response shapes to drive the flows MuseIdContext exercises:
 // start -> verify -> complete, signin, muse-exchange (+ JIT-provision /
-// email-match), userinfo, link/unlink, revoke.
+// email-match), userinfo, link/unlink, revoke, and (task 5.4) the rung-3
+// link-by-email pair link/start -> link/verify.
 //
 // Usage: call `createMuseIdMock()` once per test file, `vi.stubGlobal
 // ('fetch', mock.fetchMock)` in a beforeEach, and `mock.reset()` in
@@ -52,6 +53,13 @@ interface ServiceUserRecord {
    *  rule: masked email + a non-financial summary, NEVER a monetary
    *  value). Defaults to 0 when not seeded. */
   itemCount: number;
+  /** Set by a successful `/api/link/verify` (task 5.4, rung 3) — the muse
+   *  email this service account is linked to, if any. Minimal reverse
+   *  index (this mock doesn't otherwise track WHICH service account a
+   *  muse user's `linkedServices` entry points at) that exists purely to
+   *  drive the `service_account_already_linked` conflict test; not touched
+   *  by the other linking paths (`/api/link`, muse-exchange). */
+  linkedToMuseEmail?: string;
 }
 
 interface TokenOwner {
@@ -65,6 +73,11 @@ interface MockState {
   accessTokens: Map<string, TokenOwner>;
   refreshTokens: Map<string, TokenOwner>;
   pendingVerification: Map<string, { verified: boolean }>;
+  /** Task 5.4 rung 3: `/api/link/start` -> `/api/link/verify` pending rows,
+   *  keyed `${museEmail}:${service}` (one live attempt per service per
+   *  caller, mirrors muse-id's `@@unique([userId, service])`) -> the
+   *  candidate "email B" a code was sent to. */
+  pendingLinkVerification: Map<string, string>;
   /** Task 6.4: muse-id `/authorize` authorization codes, seeded by tests via
    *  `seedAuthCode` to simulate a completed browser round-trip (the mock
    *  never actually serves the `/authorize` page — the sandbox never fetches
@@ -82,6 +95,7 @@ function freshState(): MockState {
     accessTokens: new Map(),
     refreshTokens: new Map(),
     pendingVerification: new Map(),
+    pendingLinkVerification: new Map(),
     authCodes: new Map(),
     failing: new Set(),
   };
@@ -252,11 +266,23 @@ export function createMuseIdMock(): MuseIdMockControls {
         }
 
         pending.verified = true;
+        // Discovery display shape mirrors muse-exchange's disclosure rule
+        // (task 5.2/5.4): masked email + a non-financial summary, never a
+        // bare email or a monetary value — see maskEmailMock/
+        // summaryForService above.
         const discovery = (['moose-hub', 'adieu'] as ServiceName[])
           .map((service) => {
             const su = state.serviceUsers[service].get(email);
             return su
-              ? { service, userId: su.id, display: { name: su.name, summary: `${service} account` } }
+              ? {
+                  service,
+                  userId: su.id,
+                  display: {
+                    name: su.name,
+                    maskedEmail: maskEmailMock(su.email),
+                    summary: summaryForService(service, su.itemCount),
+                  },
+                }
               : null;
           })
           .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
@@ -344,6 +370,59 @@ export function createMuseIdMock(): MuseIdMockControls {
         const { service } = jsonBody<{ service: ServiceName }>(init);
         user.linkedServices.delete(service);
         return jsonResponse({ ok: true });
+      }
+
+      // ---- Rung 3 (task 5.4): link-by-email start/verify -----------------
+      // Anti-enumeration, mirrors /api/auth/start: ALWAYS {ok:true}, never
+      // looks at whether a service account exists at `email` — that only
+      // happens at verify time, after ownership is proven.
+      if (path === '/api/link/start' && method === 'POST') {
+        const email = bearerEmail(state, 'muse', init);
+        const user = email ? state.museUsers.get(email) : undefined;
+        if (!email || !user) return jsonResponse({ error: 'invalid_token' }, 401);
+        const { service, email: targetEmail } = jsonBody<{ service: ServiceName; email: string }>(init);
+        state.pendingLinkVerification.set(`${email}:${service}`, targetEmail.toLowerCase());
+        return jsonResponse({ ok: true });
+      }
+
+      if (path === '/api/link/verify' && method === 'POST') {
+        const email = bearerEmail(state, 'muse', init);
+        const user = email ? state.museUsers.get(email) : undefined;
+        if (!email || !user) return jsonResponse({ error: 'invalid_token' }, 401);
+        const { service, email: targetEmail, code } = jsonBody<{
+          service: ServiceName;
+          email: string;
+          code: string;
+        }>(init);
+        const key = `${email}:${service}`;
+        const pendingTarget = state.pendingLinkVerification.get(key);
+        // Terminal in one request either way (T5.1), unlike /api/auth/verify's
+        // new-user branch which stays alive for a later /complete.
+        state.pendingLinkVerification.delete(key);
+        const normalizedTarget = targetEmail.toLowerCase();
+        if (!pendingTarget || pendingTarget !== normalizedTarget || code !== FIXED_CODE) {
+          return jsonResponse({ error: 'code_invalid' }, 400);
+        }
+
+        const su = state.serviceUsers[service].get(normalizedTarget);
+        if (!su) return jsonResponse({ ok: true, status: 'no_account', service });
+
+        if (su.linkedToMuseEmail === email) {
+          // Idempotent: already linked to THIS muse user via this exact
+          // service account.
+          user.linkedServices.add(service);
+          return jsonResponse({ ok: true, status: 'linked', service });
+        }
+        if (user.linkedServices.has(service)) {
+          return jsonResponse({ error: 'user_already_linked' }, 409);
+        }
+        if (su.linkedToMuseEmail) {
+          return jsonResponse({ error: 'service_account_already_linked' }, 409);
+        }
+
+        su.linkedToMuseEmail = email;
+        user.linkedServices.add(service);
+        return jsonResponse({ ok: true, status: 'linked', service });
       }
 
       if (path === '/api/oauth/revoke' && method === 'POST') {

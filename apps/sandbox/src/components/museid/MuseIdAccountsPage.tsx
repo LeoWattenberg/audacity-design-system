@@ -33,6 +33,8 @@ import { useAdieu } from '../../contexts/AdieuContext';
 import { getAccessToken as getMuseHubAccessToken } from '../../lib/musehub-client';
 import { getAccessToken as getAdieuAccessToken } from '../../lib/adieu-client';
 import type { ServiceName } from '../../lib/muse-id-client';
+import { friendlyLinkByEmailError } from '../../hooks/useMuseIdEntry';
+import { toast } from '@dilsonspickles/components';
 import './MuseIdAccountsPage.css';
 
 const SERVICE_LABELS: Record<ServiceName, string> = {
@@ -60,12 +62,28 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
+// Rung 3 ("different email — prove by code", task 5.4): inline email -> code
+// mini-form state for one service row at a time. Lives alongside the
+// existing session-proof Link button as a second, always-available path to
+// the linking ladder's third rung — the session rung needs a live legacy
+// session; this one only needs the Muse session already required to reach
+// this page's linked/unlinked rows in the first place.
+interface EmailLinkFlowState {
+  service: ServiceName;
+  step: 'email' | 'code';
+  email: string;
+  code: string;
+  error: string | null;
+  submitting: boolean;
+}
+
 export const MuseIdAccountsPage: React.FC = () => {
   const museId = useMuseId();
   const museHub = useMuseHub();
   const adieu = useAdieu();
   const [linkingService, setLinkingService] = React.useState<ServiceName | null>(null);
   const [linkError, setLinkError] = React.useState<string | null>(null);
+  const [emailLinkFlow, setEmailLinkFlow] = React.useState<EmailLinkFlowState | null>(null);
 
   const hasLegacySession = (service: ServiceName): boolean =>
     service === 'moose-hub' ? museHub.signedIn : adieu.signedIn;
@@ -102,6 +120,51 @@ export const MuseIdAccountsPage: React.FC = () => {
   const openLegacySignIn = (service: ServiceName) => {
     if (service === 'moose-hub') museHub.openAuthDialog('sign-in');
     else adieu.openAuthDialog('sign-in');
+  };
+
+  // ---- Rung 3: "different email — prove by code" (task 5.4) ---------------
+
+  const startEmailLinkFlow = (service: ServiceName) => {
+    setEmailLinkFlow({ service, step: 'email', email: '', code: '', error: null, submitting: false });
+  };
+  const cancelEmailLinkFlow = () => setEmailLinkFlow(null);
+
+  const handleEmailLinkEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailLinkFlow || emailLinkFlow.submitting) return;
+    const { service, email } = emailLinkFlow;
+    setEmailLinkFlow({ ...emailLinkFlow, submitting: true, error: null });
+    try {
+      await museId.linkByEmailStart(service, email.trim());
+      setEmailLinkFlow((prev) => (prev ? { ...prev, step: 'code', submitting: false } : prev));
+    } catch (err) {
+      setEmailLinkFlow((prev) =>
+        prev ? { ...prev, submitting: false, error: err instanceof Error ? err.message : 'Something went wrong.' } : prev,
+      );
+    }
+  };
+
+  const handleEmailLinkCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailLinkFlow || emailLinkFlow.submitting) return;
+    const { service, email, code } = emailLinkFlow;
+    setEmailLinkFlow({ ...emailLinkFlow, submitting: true, error: null });
+    try {
+      const status = await museId.linkByEmailVerify(service, email.trim(), code.trim());
+      if (status === 'linked') {
+        toast.success('Linked', `${SERVICE_LABELS[service]} is now connected to your Muse ID.`);
+        setEmailLinkFlow(null);
+      } else {
+        // 'no_account' — ownership of the email was proven but there's
+        // nothing to link. Neutral copy, no leak beyond what a
+        // post-verification result implies (spec's disclosure rule).
+        setEmailLinkFlow((prev) => (prev ? { ...prev, submitting: false, error: 'No account found for that email.' } : prev));
+      }
+    } catch (err) {
+      setEmailLinkFlow((prev) =>
+        prev ? { ...prev, submitting: false, error: friendlyLinkByEmailError(err) } : prev,
+      );
+    }
   };
 
   return (
@@ -225,19 +288,121 @@ export const MuseIdAccountsPage: React.FC = () => {
                     {busy ? 'Linking…' : 'Link'}
                   </button>
                 ) : legacySignedIn ? null : (
-                  <button
-                    type="button"
-                    className="museid-accounts__btn museid-accounts__btn--ghost"
-                    onClick={() => openLegacySignIn(service)}
-                  >
-                    Sign in to {SERVICE_LABELS[service]}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="museid-accounts__btn museid-accounts__btn--ghost"
+                      onClick={() => openLegacySignIn(service)}
+                    >
+                      Sign in to {SERVICE_LABELS[service]}
+                    </button>
+                    {/* Rung 3 (task 5.4) — needs a live Muse session (it's a
+                        Bearer-gated endpoint), but NOT a live legacy session
+                        for this service — that's the whole point: it's the
+                        path for someone who can't produce a session because
+                        their account is under a different email. */}
+                    {museId.signedIn && (
+                      <button
+                        type="button"
+                        className="museid-accounts__btn museid-accounts__btn--ghost"
+                        onClick={() => startEmailLinkFlow(service)}
+                      >
+                        Link with a different email
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           );
         })}
         {linkError && <p className="museid-accounts__error" role="alert">{linkError}</p>}
+
+        {emailLinkFlow && (
+          <div className="museid-accounts__email-link">
+            <h4 className="museid-accounts__email-link-title">
+              Link {SERVICE_LABELS[emailLinkFlow.service]} by email
+            </h4>
+            {emailLinkFlow.step === 'email' ? (
+              <form onSubmit={(e) => void handleEmailLinkEmailSubmit(e)} noValidate>
+                <label className="museid-accounts__email-link-field">
+                  <span>Email for your {SERVICE_LABELS[emailLinkFlow.service]} account</span>
+                  <input
+                    type="email"
+                    value={emailLinkFlow.email}
+                    onChange={(e) => setEmailLinkFlow((prev) => (prev ? { ...prev, email: e.target.value } : prev))}
+                    autoComplete="email"
+                    disabled={emailLinkFlow.submitting}
+                    required
+                  />
+                </label>
+                {emailLinkFlow.error && (
+                  <p className="museid-accounts__error" role="alert">{emailLinkFlow.error}</p>
+                )}
+                <div className="museid-accounts__email-link-actions">
+                  <button
+                    type="submit"
+                    className="museid-accounts__btn museid-accounts__btn--primary"
+                    disabled={emailLinkFlow.submitting}
+                  >
+                    {emailLinkFlow.submitting ? 'Sending code…' : 'Send code'}
+                  </button>
+                  <button
+                    type="button"
+                    className="museid-accounts__btn museid-accounts__btn--ghost"
+                    onClick={cancelEmailLinkFlow}
+                    disabled={emailLinkFlow.submitting}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={(e) => void handleEmailLinkCodeSubmit(e)} noValidate>
+                <p className="museid-accounts__lead">We've sent a code to {emailLinkFlow.email}.</p>
+                <label className="museid-accounts__email-link-field">
+                  <span>Verification code</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={emailLinkFlow.code}
+                    onChange={(e) =>
+                      setEmailLinkFlow((prev) =>
+                        prev ? { ...prev, code: e.target.value.replace(/\D/g, '').slice(0, 6) } : prev,
+                      )
+                    }
+                    autoComplete="one-time-code"
+                    disabled={emailLinkFlow.submitting}
+                    required
+                    minLength={6}
+                    maxLength={6}
+                  />
+                </label>
+                {emailLinkFlow.error && (
+                  <p className="museid-accounts__error" role="alert">{emailLinkFlow.error}</p>
+                )}
+                <div className="museid-accounts__email-link-actions">
+                  <button
+                    type="submit"
+                    className="museid-accounts__btn museid-accounts__btn--primary"
+                    disabled={emailLinkFlow.submitting}
+                  >
+                    {emailLinkFlow.submitting ? 'Verifying…' : 'Verify'}
+                  </button>
+                  <button
+                    type="button"
+                    className="museid-accounts__btn museid-accounts__btn--ghost"
+                    onClick={cancelEmailLinkFlow}
+                    disabled={emailLinkFlow.submitting}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

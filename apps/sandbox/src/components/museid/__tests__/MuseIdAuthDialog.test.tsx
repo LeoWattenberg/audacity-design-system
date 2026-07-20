@@ -131,6 +131,30 @@ describe('MuseIdAuthDialog', () => {
     await waitFor(() => expect(apiRef.current!.adieu.signedIn).toBe(true));
   });
 
+  it('discovery cards show masked email + non-financial summary, NEVER a monetary value (disclosure rule)', async () => {
+    mock.seedServiceUser('moose-hub', { email: 'money@mu.se', name: 'Money MuseHub', itemCount: 7 });
+
+    const { apiRef } = renderDialog();
+    await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+    act(() => apiRef.current!.museId.openAuthDialog('sign-up'));
+
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'money@mu.se' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    fireEvent.change(await screen.findByLabelText('Verification code', { exact: false }), {
+      target: { value: '000000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    await screen.findByText('Found your accounts');
+    // Masked email + non-financial count — not the raw email, not a dollar
+    // amount anywhere on the card.
+    expect(screen.getByText('mon•••@mu.se')).toBeInTheDocument();
+    expect(screen.getByText('7 plugins')).toBeInTheDocument();
+    expect(screen.queryByText('money@mu.se')).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+  });
+
   it('code step surfaces friendly copy for a wrong code', async () => {
     const { apiRef } = renderDialog();
     await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));

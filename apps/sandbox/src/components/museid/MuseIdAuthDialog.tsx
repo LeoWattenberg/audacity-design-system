@@ -533,6 +533,7 @@ export const MuseIdAuthDialog: React.FC = () => {
                     />
                     <span className="museid-auth-dialog__card-body">
                       <span className="museid-auth-dialog__card-title">{SERVICE_LABELS[d.service]}</span>
+                      <span className="museid-auth-dialog__card-email">{d.display.maskedEmail}</span>
                       <span className="museid-auth-dialog__card-summary">{d.display.summary}</span>
                     </span>
                   </label>

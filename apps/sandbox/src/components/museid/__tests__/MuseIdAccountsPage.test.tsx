@@ -217,4 +217,83 @@ describe('MuseIdAccountsPage', () => {
     const unlinkCall = calls.find(([input]) => String(input).includes('/api/auth/muse-unlink'));
     expect(unlinkCall, 'expected a POST to the service muse-unlink endpoint').toBeTruthy();
   });
+
+  // ---- Rung 3: "different email — prove by code" (task 5.4) ---------------
+
+  describe('rung 3 — "Link with a different email"', () => {
+    it('is offered for an unlinked service with no live session, only once a Muse session exists', async () => {
+      const { apiRef } = renderPage();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+
+      // No Muse session yet — no Bearer available, so the affordance must
+      // not appear (it would 401 immediately if clicked).
+      expect(screen.queryByRole('button', { name: 'Link with a different email' })).toBeNull();
+
+      mock.seedMuseUser({ email: 'p@mu.se', password: 'password1', name: 'Page' });
+      await act(async () => {
+        await apiRef.current!.museId.signIn('p@mu.se', 'password1');
+      });
+
+      // Now offered, alongside (not instead of) the legacy sign-in button.
+      expect(await screen.findAllByRole('button', { name: 'Link with a different email' })).toHaveLength(2);
+      expect(screen.getByRole('button', { name: 'Sign in to MuseHub' })).toBeTruthy();
+    });
+
+    it('happy path: email -> code -> linked, and the row now offers Unlink', async () => {
+      mock.seedMuseUser({ email: 'q@mu.se', password: 'password1', name: 'Quinn' });
+      mock.seedServiceUser('moose-hub', { email: 'q-alt@mu.se', name: 'Real Quinn', itemCount: 2 });
+
+      const { apiRef } = renderPage();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+      await act(async () => {
+        await apiRef.current!.museId.signIn('q@mu.se', 'password1');
+      });
+
+      const [linkByEmailButton] = await screen.findAllByRole('button', { name: 'Link with a different email' });
+      fireEvent.click(linkByEmailButton);
+
+      const emailInput = await screen.findByLabelText(/Email for your MuseHub account/);
+      fireEvent.change(emailInput, { target: { value: 'q-alt@mu.se' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      const codeInput = await screen.findByLabelText('Verification code');
+      expect(screen.getByText(/We've sent a code to q-alt@mu\.se/)).toBeInTheDocument();
+      fireEvent.change(codeInput, { target: { value: '000000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+      await waitFor(() => expect(apiRef.current!.museId.linkedServices).toContain('moose-hub'));
+      expect(await screen.findByRole('button', { name: 'Unlink' })).toBeTruthy();
+      // The inline form closed itself on success.
+      expect(screen.queryByLabelText('Verification code')).toBeNull();
+    });
+
+    it('no_account: shows an inline neutral error and stays open for another attempt', async () => {
+      mock.seedMuseUser({ email: 'r@mu.se', password: 'password1', name: 'Rae' });
+      // No moose-hub account seeded at 'r-alt@mu.se'.
+
+      const { apiRef } = renderPage();
+      await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+      await act(async () => {
+        await apiRef.current!.museId.signIn('r@mu.se', 'password1');
+      });
+
+      const [linkByEmailButton] = await screen.findAllByRole('button', { name: 'Link with a different email' });
+      fireEvent.click(linkByEmailButton);
+
+      fireEvent.change(await screen.findByLabelText(/Email for your MuseHub account/), {
+        target: { value: 'r-alt@mu.se' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+      fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '000000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(/no account found/i),
+      );
+      expect(apiRef.current!.museId.linkedServices).not.toContain('moose-hub');
+      // Form stayed open — not silently dismissed.
+      expect(screen.getByLabelText('Verification code')).toBeInTheDocument();
+    });
+  });
 });

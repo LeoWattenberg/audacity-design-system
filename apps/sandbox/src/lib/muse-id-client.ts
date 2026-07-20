@@ -58,6 +58,10 @@ export interface MuseIdUserInfo {
 
 export interface DiscoveryDisplay {
   name: string;
+  /** Masked form of the account's email (e.g. `a.d•••@mu.se`) — task 5.2's
+   *  RP disclosure change. Discovery cards render this instead of a bare
+   *  email; see the design spec's "Disclosure rule for recognition cards". */
+  maskedEmail: string;
   summary: string;
 }
 
@@ -368,6 +372,28 @@ async function postJsonAuthed<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Same as `postJsonAuthed`, but parses the response body's `error` code
+ *  into a `MuseIdAuthError` on a non-2xx status (mirrors `postJsonPublic`)
+ *  instead of a generic `Error`. The rung-3 link-by-email endpoints
+ *  (`linkStart`/`linkVerify` below) need the actual code — `code_invalid`,
+ *  `user_already_linked`, `service_account_already_linked`, etc. — so
+ *  callers can show the right copy; `postJsonAuthed`'s generic "path failed:
+ *  status" would lose that. Not retrofitted onto `link`/`unlink` above to
+ *  avoid changing their established (if less informative) error shape for
+ *  existing callers outside this task's scope. */
+async function postJsonAuthedTyped<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetchWithAuth(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new MuseIdAuthError((data as { error?: string }).error ?? 'link_request_failed');
+  }
+  return data as T;
+}
+
 export function getUserInfo(): Promise<MuseIdUserInfo> {
   return getJson<MuseIdUserInfo>('/api/oauth/userinfo');
 }
@@ -380,6 +406,44 @@ export function link(
   legacyAccessToken: string,
 ): Promise<{ ok: true; linked: boolean; service: ServiceName }> {
   return postJsonAuthed('/api/link', { service, legacy_access_token: legacyAccessToken });
+}
+
+/** Linking-ladder rung 3 ("different email — prove by code", task 5.1's
+ *  `POST /api/link/start`): sends/mocks a 6-digit code to `email` to prove
+ *  ownership of a `service` account under an email OTHER than the signed-in
+ *  Muse ID's own — the case discovery/email-match can't find and
+ *  session-proof linking doesn't cover (no live legacy session). Always
+ *  `{ok:true}`, identical whether or not a `service` account exists at
+ *  `email` — same anti-enumeration shape as the signup `start` above.
+ *  Requires an existing Muse session (Bearer) — this is a post-account-
+ *  creation linking rung, not part of signup itself. */
+export function linkStart(service: ServiceName, email: string): Promise<{ ok: true }> {
+  return postJsonAuthedTyped('/api/link/start', { service, email });
+}
+
+export interface LinkByEmailVerifyResult {
+  ok: true;
+  /** `'linked'` — the service account at `email` is now linked to this
+   *  Muse ID. `'no_account'` — ownership of `email` was proven but no
+   *  `service` account exists there; nothing was created (rung 3 only
+   *  links existing accounts, per the linking ladder — a bare "no account"
+   *  never falls through to account creation). */
+  status: 'linked' | 'no_account';
+  service: ServiceName;
+}
+
+/** Checks the code `linkStart` sent. Throws `MuseIdAuthError` with code
+ *  `code_invalid` / `code_expired` / `too_many_attempts` (bad code), or the
+ *  two 409 conflicts task 5.1 defines: `user_already_linked` (this Muse ID
+ *  already has a different `service` account linked) and
+ *  `service_account_already_linked` (that `service` account is linked to a
+ *  different Muse ID). */
+export function linkVerify(
+  service: ServiceName,
+  email: string,
+  code: string,
+): Promise<LinkByEmailVerifyResult> {
+  return postJsonAuthedTyped('/api/link/verify', { service, email, code });
 }
 
 /** Removes muse-id's own LinkedAccount row for `service`. Idempotent.

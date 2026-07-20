@@ -37,6 +37,11 @@ export const AdieuAuthDialog: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [linkPromptPending, setLinkPromptPending] = useState(false);
   const [linking, setLinking] = useState(false);
+  // Rung 3 ("different email — prove by code", task 5.4) — see
+  // wallet/AuthDialog.tsx's identical state for the rationale.
+  const [linkEmail, setLinkEmail] = useState('');
+  const [linkCode, setLinkCode] = useState('');
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
   // See wallet/AuthDialog.tsx's identical ref for the rationale.
   const museFocusRef = useRef<HTMLElement>(null);
@@ -61,6 +66,9 @@ export const AdieuAuthDialog: React.FC = () => {
     setPassword('');
     setDisplayName('');
     setLinkPromptPending(false);
+    setLinkEmail('');
+    setLinkCode('');
+    setLinkSubmitting(false);
     entry.reset();
   };
 
@@ -69,13 +77,16 @@ export const AdieuAuthDialog: React.FC = () => {
     setError(null);
     setSubmitting(false);
     setLinkPromptPending(false);
+    setLinkEmail('');
+    setLinkCode('');
+    setLinkSubmitting(false);
     entry.reset();
     justOpenedRef.current = true;
     setTimeout(() => firstInputRef.current?.focus(), 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode]);
 
-  const museBusy = entry.phase.kind === 'exchanging';
+  const museBusy = entry.phase.kind === 'exchanging' || linkSubmitting;
 
   // Focus the new panel's first control on every Muse ID entry-flow state
   // change, including idle (Back/Try again) — see wallet/AuthDialog.tsx's
@@ -116,6 +127,29 @@ export const AdieuAuthDialog: React.FC = () => {
     }
   };
   const handleSkipLink = () => finishAndClose();
+
+  // ---- Rung 3: "different email — prove by code" (task 5.4) ---------------
+
+  const handleLinkEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (linkSubmitting) return;
+    setLinkSubmitting(true);
+    await entry.startLinkByEmail(linkEmail);
+    setLinkSubmitting(false);
+  };
+
+  const handleLinkCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (linkSubmitting || entry.phase.kind !== 'different-email-code') return;
+    setLinkSubmitting(true);
+    await entry.verifyLinkByEmail(entry.phase.email, linkCode);
+    setLinkSubmitting(false);
+  };
+
+  const handleUseAnotherLinkEmail = () => {
+    setLinkCode('');
+    entry.backToEmailStep();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,14 +194,20 @@ export const AdieuAuthDialog: React.FC = () => {
       : entry.phase.kind === 'settled'
         ? "You're in"
         : entry.phase.kind === 'different-email'
-          ? 'Use a different email'
-          : entry.phase.kind === 'error'
-            ? 'Something went wrong'
-            : entry.phase.kind === 'exchanging'
-              ? 'Connecting…'
-              : mode === 'sign-in'
-                ? 'Sign in to audio.com'
-                : 'Create your audio.com account';
+          ? 'Add an account by email'
+          : entry.phase.kind === 'different-email-code'
+            ? 'Check your email'
+            : entry.phase.kind === 'different-email-result'
+              ? entry.phase.status === 'linked'
+                ? "You're connected"
+                : 'No account found'
+              : entry.phase.kind === 'error'
+                ? 'Something went wrong'
+                : entry.phase.kind === 'exchanging'
+                  ? 'Connecting…'
+                  : mode === 'sign-in'
+                    ? 'Sign in to audio.com'
+                    : 'Create your audio.com account';
   const submitLabel =
     submitting
       ? mode === 'sign-in'
@@ -279,16 +319,100 @@ export const AdieuAuthDialog: React.FC = () => {
         {!linkPromptPending && entry.phase.kind === 'different-email' && (
           <div className="adieu-auth-dialog__museid-panel">
             <p className="adieu-auth-dialog__subtitle">
-              Linking an account under a different email is coming soon. For now, use the form below to sign in or create a new audio.com account.
+              Have an audio.com account under a different email? Enter it and we'll send a code to prove it's yours.
             </p>
-            <button
-              ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
-              type="button"
-              className="adieu-auth-dialog__link"
-              onClick={entry.reset}
-            >
+            <form className="adieu-auth-dialog__form" onSubmit={(e) => void handleLinkEmailSubmit(e)} noValidate>
+              <label className="adieu-auth-dialog__field">
+                <span>Email</span>
+                <input
+                  ref={focusMuseFirstRef as React.Ref<HTMLInputElement>}
+                  type="email"
+                  value={linkEmail}
+                  onChange={(e) => setLinkEmail(e.target.value)}
+                  autoComplete="email"
+                  disabled={linkSubmitting}
+                  required
+                />
+              </label>
+              {entry.phase.error && <p className="adieu-auth-dialog__error" role="alert">{entry.phase.error}</p>}
+              <button type="submit" className="adieu-auth-dialog__cta" disabled={linkSubmitting}>
+                {linkSubmitting && <span className="adieu-auth-dialog__spinner" aria-hidden="true" />}
+                <span>{linkSubmitting ? 'Sending code…' : 'Send code'}</span>
+              </button>
+            </form>
+            <button type="button" className="adieu-auth-dialog__link" onClick={entry.reset} disabled={linkSubmitting}>
               Back
             </button>
+          </div>
+        )}
+
+        {!linkPromptPending && entry.phase.kind === 'different-email-code' && (
+          <div className="adieu-auth-dialog__museid-panel">
+            <p className="adieu-auth-dialog__subtitle">We've sent a code to {entry.phase.email}.</p>
+            <form className="adieu-auth-dialog__form" onSubmit={(e) => void handleLinkCodeSubmit(e)} noValidate>
+              <label className="adieu-auth-dialog__field">
+                <span>Verification code</span>
+                <input
+                  ref={focusMuseFirstRef as React.Ref<HTMLInputElement>}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={linkCode}
+                  onChange={(e) => setLinkCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoComplete="one-time-code"
+                  disabled={linkSubmitting}
+                  required
+                  minLength={6}
+                  maxLength={6}
+                />
+                {import.meta.env.DEV && (
+                  <span className="adieu-auth-dialog__hint">Dev hint: the mock code is 000000.</span>
+                )}
+              </label>
+              {entry.phase.error && <p className="adieu-auth-dialog__error" role="alert">{entry.phase.error}</p>}
+              <button type="submit" className="adieu-auth-dialog__cta" disabled={linkSubmitting}>
+                {linkSubmitting && <span className="adieu-auth-dialog__spinner" aria-hidden="true" />}
+                <span>{linkSubmitting ? 'Verifying…' : 'Verify'}</span>
+              </button>
+            </form>
+            <button
+              type="button"
+              className="adieu-auth-dialog__link"
+              onClick={handleUseAnotherLinkEmail}
+              disabled={linkSubmitting}
+            >
+              Use a different email
+            </button>
+          </div>
+        )}
+
+        {!linkPromptPending && entry.phase.kind === 'different-email-result' && (
+          <div className="adieu-auth-dialog__museid-panel">
+            {entry.phase.status === 'linked' ? (
+              <>
+                <p className="adieu-auth-dialog__subtitle">That audio.com account is now connected to your Muse ID.</p>
+                <button
+                  ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
+                  type="button"
+                  className="adieu-auth-dialog__cta"
+                  onClick={finishAndClose}
+                >
+                  Continue to audio.com
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="adieu-auth-dialog__subtitle">No account found for that email.</p>
+                <button
+                  ref={focusMuseFirstRef as React.Ref<HTMLButtonElement>}
+                  type="button"
+                  className="adieu-auth-dialog__link"
+                  onClick={handleUseAnotherLinkEmail}
+                >
+                  Try another email
+                </button>
+              </>
+            )}
           </div>
         )}
 

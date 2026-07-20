@@ -56,13 +56,27 @@
 // user-initiated ("Have an account under a different email? Add it"), so
 // it's simply an escape hatch offered alongside states 2 and 3's UI
 // (declineClaim / useDifferentEmail) rather than something this hook tries
-// to predict. Task 5.3's brief explicitly scopes its real implementation
-// to task 5.4 ("here just provide the affordance ... a callback/state is
-// fine") — this hook exposes it as the `'different-email'` phase, which
-// both dialogs currently render as a placeholder; task 5.4 replaces that
-// placeholder with the real rung-3 UI (muse-id's `/api/link/start` +
-// `/api/link/verify`, added in task 5.1) without touching this hook's
-// state machine.
+// to predict.
+//
+// Task 5.4: rung 3 itself (email B -> code -> linked/no_account) is wired
+// here as four more phases (`different-email`, `different-email-code`,
+// `different-email-result`, reusing `error` for anything unexpected) plus
+// three actions (startLinkByEmail/verifyLinkByEmail/backToEmailStep). By
+// the time `declineClaim` lands on `different-email`, `museId.signedIn` is
+// still true (declineClaim only signs the caller out of THIS service, see
+// its own comment below) — so a Muse Bearer token exists, which is exactly
+// what `/api/link/start`/`/api/link/verify` (task 5.1) require. That's WHY
+// this lives here rather than in MuseIdAuthDialog's pre-account-creation
+// 'discovery' signup step: rung 3 is Bearer-gated (it's a post-creation
+// linking rung, same family as `/api/link`), and no Muse token exists yet
+// at that earlier point in signup — see muse-id-client.ts's linkStart doc
+// comment. This hook's 'different-email' phase is the first point in
+// either flow where a Muse session is guaranteed to already exist.
+//
+// Delegates to MuseIdContext.linkByEmailStart/linkByEmailVerify (not the
+// muse-id-client functions directly) so MuseIdAccountsPage's own rung-3 UI
+// (task 5.4, same task) shares one implementation of the hydrate-on-
+// 'linked' behavior instead of duplicating it.
 //
 // State 5 (no Muse session) is handled by MuseIdContext.ensureSignedIn —
 // opens MuseIdAuthDialog and resolves once sign-up/sign-in completes (or
@@ -103,8 +117,20 @@ export type MuseIdEntryPhase =
    *  ambiguous (accountStatus absent) case, where the copy stays neutral
    *  rather than asserting an outcome it can't actually verify. */
   | { kind: 'settled'; wasKnownNew: boolean }
-  /** State 4 placeholder — see file header. */
-  | { kind: 'different-email' }
+  /** State 4, step 1: enter the candidate "email B". `error` renders
+   *  inline (e.g. a transient failure sending the code) without losing the
+   *  step — see file header. */
+  | { kind: 'different-email'; error?: string }
+  /** State 4, step 2: enter the code sent to `email`. `error` covers a bad/
+   *  expired/exhausted code AND the two already-linked conflicts — all
+   *  recoverable in place (retry the code, or go back and use another
+   *  email), so none of them bounce out to the generic `error` phase. */
+  | { kind: 'different-email-code'; email: string; error?: string }
+  /** State 4, step 3 (terminal): `'linked'` — the service account at
+   *  `email` is now linked; `'no_account'` — ownership was proven but
+   *  there was nothing to link (nothing created, per the design's "rung 3
+   *  only links existing accounts" rule). */
+  | { kind: 'different-email-result'; status: 'linked' | 'no_account' }
   | { kind: 'error'; message: string };
 
 export interface UseMuseIdEntryArgs {
@@ -131,11 +157,24 @@ export interface UseMuseIdEntryResult {
   confirmClaim: () => Promise<void>;
   /** State 2's "Not me" action, and state 3/1's after-the-fact "actually,
    *  different email" link — both reverse whatever was just claimed/
-   *  created and land on the state 4 placeholder. */
+   *  created and land on state 4's first step (`different-email`). */
   declineClaim: () => Promise<void>;
   /** Resets to idle (e.g. a "back"/"try again" affordance on the error
    *  phase). */
   reset: () => void;
+  /** State 4 step 1 -> 2: sends the link-by-email code to `email`. Always
+   *  succeeds from the caller's perspective (anti-enumeration) unless the
+   *  request itself fails, in which case the `different-email` phase's
+   *  `error` is set and the phase doesn't advance. */
+  startLinkByEmail: (email: string) => Promise<void>;
+  /** State 4 step 2 -> 3: checks `code` against `email`. Advances to
+   *  `different-email-result` on success; on a bad code or an already-
+   *  linked conflict, sets `different-email-code`'s `error` and stays put
+   *  so the user can retry the code without re-entering the email. */
+  verifyLinkByEmail: (email: string, code: string) => Promise<void>;
+  /** State 4 step 2 -> 1: "use a different email" — back to the email
+   *  field, discarding the in-flight code attempt. */
+  backToEmailStep: () => void;
 }
 
 export function useMuseIdEntry({
@@ -237,5 +276,68 @@ export function useMuseIdEntry({
 
   const reset = useCallback(() => setPhase({ kind: 'idle' }), []);
 
-  return { phase, continueWithMuseId, confirmClaim, declineClaim, reset };
+  const startLinkByEmail = useCallback(
+    async (email: string) => {
+      const trimmed = email.trim();
+      try {
+        await museId.linkByEmailStart(service, trimmed);
+        setPhase({ kind: 'different-email-code', email: trimmed });
+      } catch (err) {
+        const message =
+          err instanceof MuseIdAuthError || err instanceof Error ? err.message : 'Something went wrong.';
+        setPhase({ kind: 'different-email', error: message });
+      }
+    },
+    [museId, service],
+  );
+
+  const verifyLinkByEmail = useCallback(
+    async (email: string, code: string) => {
+      try {
+        const status = await museId.linkByEmailVerify(service, email, code.trim());
+        setPhase({ kind: 'different-email-result', status });
+      } catch (err) {
+        setPhase({ kind: 'different-email-code', email, error: friendlyLinkByEmailError(err) });
+      }
+    },
+    [museId, service],
+  );
+
+  const backToEmailStep = useCallback(() => setPhase({ kind: 'different-email' }), []);
+
+  return {
+    phase,
+    continueWithMuseId,
+    confirmClaim,
+    declineClaim,
+    reset,
+    startLinkByEmail,
+    verifyLinkByEmail,
+    backToEmailStep,
+  };
+}
+
+// Friendly copy for the rung-3 codes muse-id's `/api/link/verify` defines
+// (see muse-id-client.ts's `linkVerify` doc comment) — kept service-neutral
+// since this hook is shared between MuseHub and audio.com. Exported so
+// MuseIdAccountsPage's own rung-3 UI (task 5.4, same task — Preferences ->
+// Accounts, which drives MuseIdContext.linkByEmailStart/linkByEmailVerify
+// directly rather than through this hook) doesn't need a second copy of
+// the same mapping.
+export function friendlyLinkByEmailError(err: unknown): string {
+  const code = err instanceof MuseIdAuthError ? err.code : '';
+  switch (code) {
+    case 'code_invalid':
+      return 'That code doesn’t match. Check your email and try again.';
+    case 'code_expired':
+      return 'That code has expired. Request a new one.';
+    case 'too_many_attempts':
+      return 'Too many wrong attempts. Request a new code to try again.';
+    case 'user_already_linked':
+      return 'Your Muse ID already has a different account linked for this service.';
+    case 'service_account_already_linked':
+      return 'That account is already linked to a different Muse ID.';
+    default:
+      return err instanceof Error ? err.message : 'Something went wrong.';
+  }
 }
