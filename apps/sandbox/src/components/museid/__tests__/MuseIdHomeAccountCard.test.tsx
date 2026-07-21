@@ -8,6 +8,7 @@ import { MuseHubProvider, useMuseHub } from '../../../contexts/MuseHubContext';
 import { AdieuProvider, useAdieu } from '../../../contexts/AdieuContext';
 import { MuseIdProvider, useMuseId } from '../../../contexts/MuseIdContext';
 import { createMuseIdMock, type MuseIdMockControls } from '../../../__tests__/museIdMock';
+import { adoptTokens as adoptAdieuTokens } from '../../../lib/adieu-client';
 import { MuseIdHomeAccountCard } from '../MuseIdHomeAccountCard';
 
 afterEach(cleanup);
@@ -95,7 +96,7 @@ describe('MuseIdHomeAccountCard', () => {
     expect(summary.textContent).toMatch(/audio\.com/);
   });
 
-  it('global sign-out: "Sign out everywhere" clears all three contexts', async () => {
+  it('global sign-out: "Sign out everywhere" clears the Muse ID and all LINKED services', async () => {
     mock.seedMuseUser({
       email: 'signout@mu.se',
       password: 'correct-horse',
@@ -118,5 +119,40 @@ describe('MuseIdHomeAccountCard', () => {
     expect(apiRef.current!.museHub.signedIn).toBe(false);
     expect(apiRef.current!.adieu.signedIn).toBe(false);
     expect(await screen.findByText('Not signed in')).toBeTruthy();
+  });
+
+  it('global sign-out: an UNLINKED service session survives "Sign out everywhere" (regression)', async () => {
+    // Scenario from the bug report: a Muse ID plus a service account signed in
+    // INDEPENDENTLY under a different email, never linked to the Muse ID.
+    // "Sign out everywhere" must not reach into that unlinked session.
+    mock.seedMuseUser({
+      email: 'scoped@mu.se',
+      password: 'correct-horse',
+      name: 'Scoped',
+      linkedServices: ['moose-hub'], // only moose-hub is linked
+    });
+
+    const { apiRef } = renderCard();
+    await waitFor(() => expect(apiRef.current?.museId.loading).toBe(false));
+
+    // An independent, UNLINKED audio.com session under a different email.
+    const adieuToken = mock.seedServiceAccessToken('adieu', 'separate@adieu.com');
+    await act(async () => {
+      adoptAdieuTokens({ accessToken: adieuToken, refreshToken: 'irrelevant', expiresAt: Date.now() + 3600_000 });
+      await apiRef.current!.adieu.hydrate();
+    });
+    await waitFor(() => expect(apiRef.current!.adieu.signedIn).toBe(true));
+
+    // Sign into the Muse ID — adopts the linked moose-hub, leaves adieu alone.
+    await act(async () => {
+      await apiRef.current!.museId.signIn('scoped@mu.se', 'correct-horse');
+    });
+    await waitFor(() => expect(apiRef.current!.museHub.signedIn).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere' }));
+
+    await waitFor(() => expect(apiRef.current!.museId.signedIn).toBe(false));
+    expect(apiRef.current!.museHub.signedIn).toBe(false); // linked -> signed out
+    expect(apiRef.current!.adieu.signedIn).toBe(true);    // unlinked -> survives
   });
 });

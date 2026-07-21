@@ -421,12 +421,20 @@ export const MuseIdProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signOutEverywhere = useCallback(async (): Promise<void> => {
     setError(null);
-    await Promise.allSettled([museIdLogout(), museHub.signOut(), adieu.signOut()]);
+    // "Everywhere" = everywhere THIS Muse ID is signed in: the Muse ID itself
+    // plus only the services actually linked to it. Service accounts signed
+    // in independently (never linked to this Muse ID — e.g. a direct MuseHub
+    // login under a different email) are left alone; a Muse ID sign-out must
+    // not reach into sessions it never authorized.
+    const ops: Array<Promise<unknown>> = [museIdLogout()];
+    if (linkedServices.includes('moose-hub')) ops.push(museHub.signOut());
+    if (linkedServices.includes('adieu')) ops.push(adieu.signOut());
+    await Promise.allSettled(ops);
     setSignedIn(false);
     setProfile(null);
     setLinkedServices([]);
     pendingSignUpEmailRef.current = null;
-  }, [museHub, adieu]);
+  }, [museHub, adieu, linkedServices]);
 
   const linkService = useCallback(
     async (service: ServiceName, legacyAccessToken: string): Promise<void> => {
