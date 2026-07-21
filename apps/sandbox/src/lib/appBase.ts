@@ -14,8 +14,14 @@
 // fold the base path in. On `/` hosting they return exactly what the old
 // inline `${origin}/oauth/callback` did, so dev/localhost is unaffected.
 
-/** The app's base path, always with a trailing slash (`/` or `/sub/`). */
-export const APP_BASE_PATH = import.meta.env.BASE_URL;
+/** The app's base path, normalized to ALWAYS end with a trailing slash
+ *  (`/` or `/sub/`). `import.meta.env.BASE_URL` reflects the raw `base`
+ *  config, which here comes from BASE_PATH without a trailing slash
+ *  (`/audacity-design-system`) — Vite adds the slash when joining asset
+ *  URLs, but the raw env value does not have one, so we must normalize
+ *  before building URLs ourselves. */
+const RAW_BASE = import.meta.env.BASE_URL || '/';
+export const APP_BASE_PATH = RAW_BASE.endsWith('/') ? RAW_BASE : `${RAW_BASE}/`;
 
 /** Absolute redirect_uri for the shared OAuth callback route. Must match
  *  byte-for-byte what each service has registered for this client. */
