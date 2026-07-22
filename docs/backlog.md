@@ -16,6 +16,15 @@ Self-contained work items discovered during the agent-readiness campaigns (2026-
 ### Invalid controlPointStyle default in Canvas
 `apps/sandbox/src/components/Canvas.tsx` — the `controlPointStyle` default value is not a valid `ENVELOPE_POINT_STYLES` key (discovered building the integration harness, which works around it). Fix the default to a real key; check what envelope point rendering silently does with the invalid value today.
 
+### Dark mode unfinished for dialog/marketplace surfaces (hardcoded light backgrounds)
+Several components render light backgrounds in dark mode because they hardcode `#ffffff`/`white` in CSS with no theme wiring at all (this app themes by injecting CSS-variable values from `useTheme()`; a literal is a theming gap). Found by scanning the live dark-mode DOM for opaque-white backgrounds. Confirmed white-in-dark-mode:
+- **PreferencesModal** — the whole modal body renders light (`.preferences-modal__body` bg ≈ `#EBEDF0`); `PreferencesModal.css:268` (`.shortcuts-table__body`) is `#ffffff`.
+- **Shortcuts table** — `ShortcutTableRow.css:5` (`.shortcut-table-row`) `#ffffff` rows.
+- **Plugins marketplace** — `PluginCard.css:7` `#ffffff` cards (Home Plugins page + Get-effects modal); `PluginBrowserDialog.css:33` `#ffffff` sidebar; the surrounding page content area is also un-themed light-grey, not just the pure-white cards.
+- **NumberStepper** — `NumberStepper.css:4` `background-color: white`. Deliberately NOT fixed standalone: it lives almost entirely inside the above still-light dialogs, so theming it alone (dark control on a light modal) clashes. Fix it AS PART OF theming those dialogs so the whole surface flips together. The one-line fix is `--number-stepper-bg: theme.background.control.input.idle` injected in `NumberStepper.tsx` + `background-color: var(--number-stepper-bg, white)` in the CSS (light value is `#FFFFFF`, so light/website is unchanged) — apply it when the dialogs are themed.
+
+Pattern to reuse (already applied to Button/Dropdown/SearchField): source backgrounds from `theme.background.control.input.idle` (or an appropriate `surface` token), whose light value stays `#FFFFFF` so light mode / the website is unchanged. NOT bugs — leave alone: white 1px indicator lines (`PlayheadCursor.css`, `VerticalRulerPanel.css:158`, `PianoRollPanel.tsx:318`), which are white in both themes by design. Design-check (low priority): label `:hover` states hardcode `background: white` (`PointLabel`/`RegionLabel`/`LabelMarker`) though their base is themed. `TabList.css:8` is white but the component has no app importers (dead/demo).
+
 ## Decisions needed (product/architecture)
 
 ### Unify the two missing-plugins scans?
